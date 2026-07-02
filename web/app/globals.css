@@ -65,6 +65,13 @@ html{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
 .nav-mid a{transition:color .3s}.nav-mid a:hover{color:var(--text)}
 .nav-dl{font-size:.88rem;padding:.44rem .44rem .44rem 1rem}
 .nav-dl .btn-ico{width:28px;height:28px}.nav-dl .btn-ico svg{width:14px;height:14px}
+.nav-end{display:flex;align-items:center;gap:.7rem}
+.nav-by{font-size:.85rem;font-weight:600;color:var(--text-2);letter-spacing:-.01em;white-space:nowrap;transition:color .2s var(--e)}
+.nav-by:hover{color:var(--text)}
+.nav-gh{display:inline-flex;align-items:center;justify-content:center;width:33px;height:33px;border-radius:999px;flex:0 0 auto;color:var(--text-2);
+  background:rgba(255,255,255,.035);border:1px solid var(--hair);box-shadow:var(--hl);transition:color .25s var(--e),background .25s,border-color .25s,transform .5s var(--e)}
+.nav-gh:hover{color:var(--text);background:rgba(255,255,255,.08);border-color:var(--hair-2);transform:translateY(-1px)}
+.nav-gh svg{width:17px;height:17px}
 
 /* ===== KINETIC HERO ===== */
 .khero{min-height:100dvh;display:flex;flex-direction:column;justify-content:center;gap:clamp(1.4rem,3vh,2.4rem);padding:7rem var(--pad) 3rem;max-width:var(--maxw);margin:0 auto}
@@ -209,3 +216,4 @@ html{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
   .foot-top{grid-template-columns:1fr 1fr}.foot-brand{grid-column:1 / -1}
   .foot-bottom{flex-direction:column;gap:.4rem}
 }
+@media(max-width:560px){.nav-by{display:none}}

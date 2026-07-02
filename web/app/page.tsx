@@ -47,7 +47,11 @@ export default function Page() {
         <div className="nav-pill">
           <a className="nav-brand" href="#top"><LogoMark theme={theme} /><span>Svara</span></a>
           <nav className="nav-mid"><a href="#meters">Meters</a><a href="#themes">Themes</a><a href="#how">How</a><a href="#get">Get it</a></nav>
-          <Magnetic s={0.2}><a className="btn group btn-solid nav-dl" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+          <div className="nav-end">
+            <a className="nav-by" href="https://vasudev.live" target="_blank" rel="noopener">vasu-devs</a>
+            <a className="nav-gh" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener" aria-label="Svara on GitHub"><GithubIcon /></a>
+            <Magnetic s={0.2}><a className="btn group btn-solid nav-dl" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+          </div>
         </div>
       </header>
 
@@ -263,3 +267,4 @@ function AnimatedFavicon({ theme }: { theme: string }) {
   return null;
 }
 const DownloadIcon = () => <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0l-3.5-3.5M12 15l3.5-3.5M6 19h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+const GithubIcon = () => <svg viewBox="0 0 24 24" fill="none"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" fill="currentColor" /></svg>;
