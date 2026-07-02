@@ -86,18 +86,21 @@ class Transcriber:
                     for s in segments if s.text.strip()]
 
     def transcribe_partial(self, audio: np.ndarray) -> list[tuple[str, float, float]]:
-        """Fast greedy pass over an in-progress buffer (streaming preview/live).
+        """Beam-searched pass over an in-progress buffer (streaming live/preview).
 
         Returns [(text, start_s, end_s), …] — timings let the streamer trim
         fully-committed audio (passes stay fast forever) and measure loudness.
-        vad_filter=True is essential: without it, greedy decoding over buffers
-        with silence hallucinates repeated words ("hello hello hello").
+        Uses partial_beam_size (default 3) so live words are chosen accurately
+        instead of garbled greedy guesses. vad_filter=True is essential: without
+        it, decoding over buffers with silence repeats words ("hello hello").
+        initial_prompt biases the vocabulary toward correct spellings.
         """
         with self._lock:
             segments, _info = self.model.transcribe(
                 audio,
-                beam_size=1,
+                beam_size=int(self.cfg.get("partial_beam_size", 3)),
                 language=self.cfg["language"] or "en",
+                initial_prompt=self.cfg.get("initial_prompt"),
                 vad_filter=True,
                 condition_on_previous_text=False,
             )

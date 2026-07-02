@@ -14,7 +14,8 @@ DEFAULTS: dict = {
         "device": "cuda",               # cuda | cpu | auto
         "compute_type": "int8_float16", # GPU: int8_float16 (~1.5GB) or float16; CPU: int8
         "language": "en",               # ISO code, or null for auto-detect
-        "beam_size": 1,                 # 1 = greedy (fastest); 5 = whisper default quality
+        "beam_size": 2,                 # final-pass beam: 2 = good, 1 = fastest, 5 = default
+        "partial_beam_size": 2,         # live streaming beam: 2 balances speed + accuracy
         "initial_prompt": None,         # optional vocabulary hint for the decoder
         "download_root": None,          # None = default HuggingFace cache
     },

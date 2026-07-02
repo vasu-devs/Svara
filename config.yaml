@@ -8,7 +8,8 @@ model:
   device: cuda                # cuda | cpu | auto
   compute_type: int8_float16  # GPU: int8_float16 (~1.5GB VRAM, fastest) | float16
   language: en                # ISO code (en, hi, ...) or null for auto-detect
-  beam_size: 2                # 2 = good accuracy, still fast; 1 = fastest; 5 = whisper default
+  beam_size: 2                # final-pass beam: 2 = good, 1 = fastest, 5 = whisper default
+  partial_beam_size: 2        # live-streaming beam: 2 balances speed and accuracy (1=fastest, 5=most accurate)
   initial_prompt: null        # vocabulary hint, e.g. "MyWhisper, faster-whisper, CTranslate2"
   download_root: null         # model cache dir (null = HuggingFace default)
 
@@ -62,8 +63,8 @@ streaming:
   mode: live                  # live    = words are TYPED at your cursor in real time as you talk
                               # preview = words only shown inside the pill; typed after you stop
                               # off     = classic batch (transcribe only after you stop)
-  interval_ms: 300            # how often the rolling buffer is re-transcribed
-  min_audio_s: 0.5            # wait for this much audio before the first pass
+  interval_ms: 180            # how often the rolling buffer is re-transcribed (lower = snappier)
+  min_audio_s: 0.35           # wait for this much audio before the first word appears
 
 audio:
   sample_rate: 16000
