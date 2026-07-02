@@ -64,7 +64,7 @@ canvas{display:block}
 .kh-mask{display:block;overflow:hidden;padding-bottom:.02em}
 .kh-in{display:block;animation:rise 1.05s var(--e)}
 .kh-title em{font-style:normal;color:var(--accent);transition:color .6s}
-.kh-wave{position:relative;height:clamp(96px,20vh,220px);animation:fade 1.2s var(--e)}
+.kh-wave{position:relative;height:clamp(150px,30vh,340px);animation:fade 1.2s var(--e)}
 .kh-wave canvas{width:100%;height:100%}
 .kh-wave::after{content:"";position:absolute;left:0;right:0;top:50%;height:1px;background:linear-gradient(90deg,transparent,var(--hair-2),transparent)}
 .kh-foot{display:flex;justify-content:space-between;align-items:flex-end;gap:2rem;flex-wrap:wrap;animation:fade 1s var(--e)}

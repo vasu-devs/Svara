@@ -58,18 +58,25 @@ function draw(n: Node, t: number, lv: number) {
   const { ctx, w, h } = n, mid = h / 2, sc = h / 56;
   const style = n.style();
   const lean = n.hero ? (pointer.x - 0.5) * pointer.active : 0;
+  const glow = !!n.hero; // hero/pill/showcase render as luminous, additively-blended light
   ctx.lineCap = "round"; ctx.lineJoin = "round";
+  if (glow) ctx.globalCompositeOperation = "lighter";
 
   if (style === "strings") {
-    const amp = (2.2 + 12.5 * lv) * sc * (1 + 0.3 * Math.abs(lean));
-    for (let pass = 0; pass < 2; pass++)
-      for (let i = 0; i < 3; i++) {
-        const ph1 = t * 0.0027 + i * 2.1 + lean * 1.3, ph2 = t * 0.0018 - i * 1.4;
-        ctx.beginPath();
-        for (let j = 0; j <= 32; j++) { const u = j / 32, env = Math.sin(Math.PI * u); const y = mid + env * (amp * 0.72 * Math.sin(9.4 * u + ph1) + amp * 0.5 * Math.sin(14.6 * u - ph2)); j ? ctx.lineTo(u * w, y) : ctx.moveTo(u * w, y); }
-        ctx.strokeStyle = col(n, i); ctx.globalAlpha = pass ? 1 : 0.3; ctx.lineWidth = pass ? 2 : 5.5; ctx.stroke();
-      }
-    ctx.globalAlpha = 1;
+    // lush flowing light: many soft strands, additive bloom, bright cores
+    const strands = glow ? 7 : 3;
+    const amp = (3 + 15 * lv) * sc * (1 + 0.42 * Math.abs(lean));
+    for (let i = 0; i < strands; i++) {
+      const c = col(n, i % 3);
+      const ph1 = t * 0.0016 + i * 0.88 + lean * 1.25, ph2 = t * 0.0011 - i * 0.72;
+      const ys = 1 - (i % 3) * 0.16;
+      ctx.beginPath();
+      for (let j = 0; j <= 48; j++) { const u = j / 48, env = Math.pow(Math.sin(Math.PI * u), 0.82); const y = mid + env * (amp * ys * 0.72 * Math.sin(7.2 * u + ph1) + amp * ys * 0.46 * Math.sin(11.4 * u - ph2)); j ? ctx.lineTo(u * w, y) : ctx.moveTo(u * w, y); }
+      ctx.strokeStyle = c;
+      if (glow) { ctx.shadowColor = c; ctx.shadowBlur = 15 * (h / 200 + 0.5); ctx.globalAlpha = 0.5; ctx.lineWidth = 2.6; ctx.stroke(); ctx.shadowBlur = 0; ctx.globalAlpha = 0.95; ctx.lineWidth = 1.3; ctx.stroke(); }
+      else { ctx.globalAlpha = 0.3; ctx.lineWidth = 5; ctx.stroke(); ctx.globalAlpha = 1; ctx.lineWidth = 1.8; ctx.stroke(); }
+    }
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
   } else if (style === "bars") {
     const N = 13, step = w / N, bw = 3.2;
     for (let i = 0; i < N; i++) { const ph = Math.sin(t * 0.012 + i * 0.9); const bh = (2 + (0.3 + 0.7 * Math.abs(ph)) * 12 * lv + 1.2) * sc; const cx = i * step + step / 2; ctx.strokeStyle = col(n, i); ctx.lineWidth = bw; ctx.beginPath(); ctx.moveTo(cx, mid - bh); ctx.lineTo(cx, mid + bh); ctx.stroke(); }
@@ -100,5 +107,5 @@ function draw(n: Node, t: number, lv: number) {
     const N = 12, step = w / N, block = 2.3 * sc, gap = 2.4;
     for (let i = 0; i < N; i++) { const ph = Math.abs(Math.sin(t * 0.01 + i * 1.1)), levels = 1 + Math.floor((0.25 + 0.75 * ph) * lv * 4 + 0.4); const cx = i * step + step / 2; ctx.fillStyle = col(n, i); for (let k = 0; k < levels; k++) { const off = k * (block + gap); ctx.fillRect(cx - block / 2, mid - off - block, block, block); ctx.fillRect(cx - block / 2, mid + off, block, block); } }
   }
-  ctx.globalAlpha = 1;
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0; ctx.globalCompositeOperation = "source-over";
 }
