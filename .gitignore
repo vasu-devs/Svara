@@ -1,0 +1,18 @@
+# Python / venv
+.venv/
+__pycache__/
+*.pyc
+
+# Runtime artifacts
+logs/
+state.json
+*.wav
+
+# Build output (large — do not commit; built via build.bat)
+dist/
+build/
+*.egg-info/
+
+# OS / editor
+Thumbs.db
+.DS_Store

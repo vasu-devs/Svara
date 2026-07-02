@@ -1,0 +1,22 @@
+# Core STT engine (CTranslate2 backend — 4x faster than vanilla whisper, int8 support)
+faster-whisper>=1.1.0
+
+# CUDA runtime libs as pip wheels (no system CUDA toolkit install needed).
+# NOTE: faster-whisper >=1.1 uses CTranslate2 >=4.5, which requires cuDNN 9.
+# (The old "cuDNN 8, not 9" trap applies only to ctranslate2 < 4.5.)
+nvidia-cublas-cu12
+nvidia-cudnn-cu12>=9,<10
+
+# Audio capture
+sounddevice>=0.4.6
+numpy
+
+# Global hotkey listening + fallback keystroke injection
+pynput>=1.7.6
+
+# Config
+PyYAML>=6.0
+
+# System tray icon
+pystray>=0.19.5
+Pillow>=10.0
