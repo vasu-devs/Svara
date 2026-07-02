@@ -41,10 +41,11 @@ export default function Page() {
     <>
       <div className="bg-grid" aria-hidden />
       <div className="grain" aria-hidden />
+      <AnimatedFavicon theme={theme} />
 
       <header className="nav-wrap">
         <div className="nav-pill">
-          <a className="nav-brand" href="#top"><LogoMark /><span>Svara</span></a>
+          <a className="nav-brand" href="#top"><LogoMark theme={theme} /><span>Svara</span></a>
           <nav className="nav-mid"><a href="#meters">Meters</a><a href="#themes">Themes</a><a href="#how">How</a><a href="#get">Get it</a></nav>
           <Magnetic s={0.2}><a className="btn group btn-solid nav-dl" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
         </div>
@@ -100,7 +101,7 @@ export default function Page() {
       <footer className="footer">
         <div className="foot-top">
           <div className="foot-brand">
-            <div className="foot-brandrow"><LogoMark /><span>Svara</span></div>
+            <div className="foot-brandrow"><LogoMark theme={theme} /><span>Svara</span></div>
             <p className="foot-tag">Private voice dictation that runs on your own machine. Speak, and it is written, the instant you say it.</p>
             <Magnetic><a className="btn group btn-solid" href="#get"><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
             <div className="foot-themes">
@@ -218,15 +219,42 @@ function Themes({ theme, onTheme }: { theme: string; onTheme: (k: string) => voi
   );
 }
 
-/* ---------- logo + icons ---------- */
-const LogoMark = () => (
-  <span className="logo-mark">
-    <svg viewBox="0 0 32 32" fill="none" width="100%" height="100%">
-      <rect x="1" y="1" width="30" height="30" rx="9.5" fill="currentColor" />
-      <rect x="1.6" y="1.6" width="28.8" height="28.8" rx="8.9" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.1" />
-      <path d="M6 16 q5 -7.2 10 0 t10 0" stroke="#fff" strokeWidth="2.7" strokeLinecap="round" />
-      <path d="M6 16 q5 4.6 10 0 t10 0" stroke="rgba(255,255,255,0.5)" strokeWidth="1.7" strokeLinecap="round" />
-    </svg>
-  </span>
+/* ---------- animated logo + favicon + icons ---------- */
+const LogoMark = ({ theme }: { theme: string }) => (
+  <span className="logo-orb"><Visualizer style="strings" themeKey={theme} /></span>
 );
+
+// Live animated favicon: renders the ribbons to a tiny canvas and swaps the tab icon each frame.
+function AnimatedFavicon({ theme }: { theme: string }) {
+  const themeRef = useRef(theme); themeRef.current = theme;
+  useEffect(() => {
+    const c = document.createElement("canvas"); c.width = 64; c.height = 64;
+    const x = c.getContext("2d"); if (!x) return;
+    let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
+    if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+    const prev = link.getAttribute("href");
+    let t = 0; let id: ReturnType<typeof setTimeout>;
+    const rr = (px: number, py: number, w: number, h: number, r: number) => { x.beginPath(); x.moveTo(px + r, py); x.arcTo(px + w, py, px + w, py + h, r); x.arcTo(px + w, py + h, px, py + h, r); x.arcTo(px, py + h, px, py, r); x.arcTo(px, py, px + w, py, r); x.closePath(); };
+    const draw = () => {
+      t += 0.11;
+      const cols = (THEMES[themeRef.current] || THEMES.aurora).cols;
+      x.clearRect(0, 0, 64, 64);
+      rr(3, 3, 58, 58, 17); x.fillStyle = "#0a0a0d"; x.fill();
+      x.lineWidth = 2.4; x.strokeStyle = "rgba(255,255,255,0.16)"; x.stroke();
+      x.save(); rr(3, 3, 58, 58, 17); x.clip();
+      x.globalCompositeOperation = "lighter"; x.lineCap = "round";
+      for (let i = 0; i < 3; i++) {
+        x.beginPath();
+        for (let j = 0; j <= 26; j++) { const u = j / 26, env = Math.sin(Math.PI * u); const y = 32 + env * 13 * (0.72 * Math.sin(7 * u + t + i * 0.9) + 0.42 * Math.sin(11 * u - t * 0.7)); const px = 9 + u * 46; j ? x.lineTo(px, y) : x.moveTo(px, y); }
+        x.strokeStyle = cols[i]; x.lineWidth = 2.6; x.globalAlpha = 0.9; x.stroke();
+      }
+      x.restore(); x.globalCompositeOperation = "source-over"; x.globalAlpha = 1;
+      link!.href = c.toDataURL("image/png");
+      id = setTimeout(draw, 125);
+    };
+    draw();
+    return () => { clearTimeout(id); if (prev) link!.setAttribute("href", prev); };
+  }, []);
+  return null;
+}
 const DownloadIcon = () => <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0l-3.5-3.5M12 15l3.5-3.5M6 19h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
