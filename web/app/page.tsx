@@ -44,7 +44,7 @@ export default function Page() {
 
       <header className="nav-wrap">
         <div className="nav-pill">
-          <a className="nav-brand" href="#top"><span className="nav-orb"><Visualizer style="scope" themeKey={theme} /></span><span>Svara</span></a>
+          <a className="nav-brand" href="#top"><LogoMark /><span>Svara</span></a>
           <nav className="nav-mid"><a href="#meters">Meters</a><a href="#themes">Themes</a><a href="#how">How</a><a href="#get">Get it</a></nav>
           <Magnetic s={0.2}><a className="btn group btn-solid nav-dl" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
         </div>
@@ -98,8 +98,21 @@ export default function Page() {
       </main>
 
       <footer className="footer">
-        <div className="foot-brand"><span className="nav-orb"><Visualizer style="scope" themeKey={theme} /></span><span>Svara</span></div>
-        <div className="foot-links"><a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a><a href="#get">Download</a></div>
+        <div className="foot-top">
+          <div className="foot-brand">
+            <div className="foot-brandrow"><LogoMark /><span>Svara</span></div>
+            <p className="foot-tag">Private voice dictation that runs on your own machine. Speak, and it is written, the instant you say it.</p>
+            <Magnetic><a className="btn group btn-solid" href="#get"><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+          </div>
+          <div className="foot-col"><h4>Product</h4><a href="#get">Download</a><a href="#meters">Meters</a><a href="#themes">Themes</a><a href="#how">How it works</a></div>
+          <div className="foot-col"><h4>Source</h4><a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a><a href="https://github.com/vasu-devs/Svara/releases" target="_blank" rel="noopener">Releases</a></div>
+          <div className="foot-col"><h4>Built on</h4><a href="https://github.com/SYSTRAN/faster-whisper" target="_blank" rel="noopener">faster-whisper</a><a href="https://github.com/OpenNMT/CTranslate2" target="_blank" rel="noopener">CTranslate2</a><a href="https://github.com/snakers4/silero-vad" target="_blank" rel="noopener">Silero VAD</a></div>
+        </div>
+        <div className="foot-word" aria-hidden>Svara</div>
+        <div className="foot-bottom">
+          <span>Open source · no account · <span className="b">your voice never leaves your machine</span></span>
+          <span>© 2026 Svara · built on faster-whisper</span>
+        </div>
       </footer>
     </>
   );
@@ -201,5 +214,14 @@ function Themes({ theme, onTheme }: { theme: string; onTheme: (k: string) => voi
   );
 }
 
-/* ---------- icons ---------- */
+/* ---------- logo + icons ---------- */
+const LogoMark = () => (
+  <span className="logo-mark">
+    <svg viewBox="0 0 32 32" fill="none" width="100%" height="100%">
+      <rect x="1.25" y="1.25" width="29.5" height="29.5" rx="9" fill="#0d0d10" stroke="rgba(255,255,255,0.13)" />
+      <path d="M6 16 q4 -6.6 8 0 t8 0 t8 0" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
+      <path d="M6 16 q4 6.6 8 0 t8 0 t8 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.34" />
+    </svg>
+  </span>
+);
 const DownloadIcon = () => <svg viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0l-3.5-3.5M12 15l3.5-3.5M6 19h12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
