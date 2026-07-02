@@ -12,7 +12,7 @@ A free, local, open-source alternative to cloud dictation tools like Wispr Flow.
 ![platform](https://img.shields.io/badge/platform-Windows%2010%20%2F%2011-0a0a0d)
 ![python](https://img.shields.io/badge/python-3.11-0a0a0d)
 ![engine](https://img.shields.io/badge/engine-faster--whisper-22d3ee)
-![license](https://img.shields.io/badge/license-MIT-38ff88)
+![license](https://img.shields.io/badge/license-AGPL--3.0-38ff88)
 
 </div>
 
@@ -320,6 +320,10 @@ output and your `config.yaml` help a lot. If you are adding a feature, keep the
 
 ## License
 
-MIT. Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
+**GNU AGPL-3.0** — see [`LICENSE`](LICENSE). You are free to use, study, modify,
+and share Svara; if you run a modified version as a network service, the AGPL
+requires you to offer that modified source to its users.
+
+Built on [faster-whisper](https://github.com/SYSTRAN/faster-whisper),
 [CTranslate2](https://github.com/OpenNMT/CTranslate2), and
 [Silero VAD](https://github.com/snakers4/silero-vad). Your voice stays with you.
