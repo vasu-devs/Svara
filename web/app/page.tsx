@@ -6,6 +6,8 @@ import { Visualizer } from "@/components/Visualizer";
 import { THEMES, STYLES, speak, setPointer } from "@/lib/engine";
 
 const THEME_KEYS = ["aurora", "cyberpunk", "matrix", "sakura", "dracula", "vaporwave"];
+// Direct asset URL: one click downloads the file, no releases page, no scroll.
+const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-Windows.zip";
 
 function Reveal({ children, className, delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -50,7 +52,7 @@ export default function Page() {
           <div className="nav-end">
             <a className="nav-by" href="https://vasudev.live" target="_blank" rel="noopener">vasu-devs</a>
             <a className="nav-gh" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener" aria-label="Svara on GitHub"><GithubIcon /></a>
-            <Magnetic s={0.2}><a className="btn group btn-solid nav-dl" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+            <Magnetic s={0.2}><a className="btn group btn-solid nav-dl" href={DOWNLOAD}><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
           </div>
         </div>
       </header>
@@ -101,7 +103,7 @@ export default function Page() {
           <Reveal delay={0.05}><h2>Speak it.<br />Ship it. <em>Free.</em></h2></Reveal>
           <Reveal delay={0.1}><p>Windows 10 and 11. NVIDIA GPU for the fast path, CPU still works. The model downloads once, then it runs fully offline.</p></Reveal>
           <Reveal delay={0.15}><div className="kcta-actions">
-            <Magnetic><a className="btn group btn-solid" style={{ fontSize: "1.05rem", padding: ".85rem .85rem .85rem 1.6rem" }} href="https://github.com/vasu-devs/Svara/releases" target="_blank" rel="noopener"><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+            <Magnetic><a className="btn group btn-solid" style={{ fontSize: "1.05rem", padding: ".85rem .85rem .85rem 1.6rem" }} href={DOWNLOAD}><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
             <a className="btn btn-ghost" style={{ fontSize: "1.05rem", padding: ".85rem 1.7rem" }} href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">Star on GitHub</a>
           </div></Reveal>
           <Reveal delay={0.2}><p className="kcta-note">Open source · built on faster-whisper · your voice never leaves your machine</p></Reveal>
@@ -113,13 +115,13 @@ export default function Page() {
           <div className="foot-brand">
             <div className="foot-brandrow"><LogoMark theme={theme} /><span>Svara</span></div>
             <p className="foot-tag">Private voice dictation that runs on your own machine. Speak, and it is written, the instant you say it.</p>
-            <Magnetic><a className="btn group btn-solid" href="#get"><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+            <Magnetic><a className="btn group btn-solid" href={DOWNLOAD}><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
             <div className="foot-themes">
               <span className="lbl">Theme</span>
               <div className="swatches">{THEME_KEYS.map((k) => <button key={k} className={`swatch ${theme === k ? "on" : ""}`} aria-label={THEMES[k].name} style={{ background: THEMES[k].accent }} onClick={() => morph(k)} />)}</div>
             </div>
           </div>
-          <div className="foot-col"><h4>Product</h4><a href="#get">Download</a><a href="#meters">Meters</a><a href="#themes">Themes</a><a href="#how">How it works</a></div>
+          <div className="foot-col"><h4>Product</h4><a href={DOWNLOAD}>Download</a><a href="#meters">Meters</a><a href="#themes">Themes</a><a href="#how">How it works</a></div>
           <div className="foot-col"><h4>Source</h4><a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a><a href="https://github.com/vasu-devs/Svara/releases" target="_blank" rel="noopener">Releases</a></div>
           <div className="foot-col"><h4>Built on</h4><a href="https://github.com/SYSTRAN/faster-whisper" target="_blank" rel="noopener">faster-whisper</a><a href="https://github.com/OpenNMT/CTranslate2" target="_blank" rel="noopener">CTranslate2</a><a href="https://github.com/snakers4/silero-vad" target="_blank" rel="noopener">Silero VAD</a></div>
         </div>
@@ -183,7 +185,7 @@ function Hero({ theme, onTheme }: { theme: string; onTheme: (k: string) => void 
             <div><b>100%</b><span>on your machine</span></div>
           </div>
           <div className="kh-cta">
-            <Magnetic><a className="btn group btn-solid" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+            <Magnetic><a className="btn group btn-solid" href={DOWNLOAD}><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
             <a className="btn btn-ghost" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">View source</a>
           </div>
         </div>
