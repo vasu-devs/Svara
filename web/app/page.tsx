@@ -234,23 +234,21 @@ function AnimatedFavicon({ theme }: { theme: string }) {
     if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
     const prev = link.getAttribute("href");
     let t = 0; let id: ReturnType<typeof setTimeout>;
-    const rr = (px: number, py: number, w: number, h: number, r: number) => { x.beginPath(); x.moveTo(px + r, py); x.arcTo(px + w, py, px + w, py + h, r); x.arcTo(px + w, py + h, px, py + h, r); x.arcTo(px, py + h, px, py, r); x.arcTo(px, py, px + w, py, r); x.closePath(); };
     const draw = () => {
-      t += 0.11;
+      t += 0.12;
       const cols = (THEMES[themeRef.current] || THEMES.aurora).cols;
-      x.clearRect(0, 0, 64, 64);
-      rr(3, 3, 58, 58, 17); x.fillStyle = "#0a0a0d"; x.fill();
-      x.lineWidth = 2.4; x.strokeStyle = "rgba(255,255,255,0.16)"; x.stroke();
-      x.save(); rr(3, 3, 58, 58, 17); x.clip();
-      x.globalCompositeOperation = "lighter"; x.lineCap = "round";
+      x.clearRect(0, 0, 64, 64); // no chip: distinct glowing ribbons on transparent
+      x.lineCap = "round"; x.lineJoin = "round";
       for (let i = 0; i < 3; i++) {
+        const c = cols[i], ys = 1 - i * 0.14;
         x.beginPath();
-        for (let j = 0; j <= 26; j++) { const u = j / 26, env = Math.sin(Math.PI * u); const y = 32 + env * 13 * (0.72 * Math.sin(7 * u + t + i * 0.9) + 0.42 * Math.sin(11 * u - t * 0.7)); const px = 9 + u * 46; j ? x.lineTo(px, y) : x.moveTo(px, y); }
-        x.strokeStyle = cols[i]; x.lineWidth = 2.6; x.globalAlpha = 0.9; x.stroke();
+        for (let j = 0; j <= 30; j++) { const u = j / 30, env = Math.pow(Math.sin(Math.PI * u), 0.82); const y = 32 + env * 16 * ys * (0.72 * Math.sin(7 * u + t + i * 0.9) + 0.44 * Math.sin(11 * u - t * 0.7)); const px = 3 + u * 58; j ? x.lineTo(px, y) : x.moveTo(px, y); }
+        x.strokeStyle = c; x.shadowColor = c; x.shadowBlur = 8; x.globalAlpha = 0.85; x.lineWidth = 2.3; x.stroke();
+        x.shadowBlur = 0; x.globalAlpha = 1; x.lineWidth = 1.3; x.stroke();
       }
-      x.restore(); x.globalCompositeOperation = "source-over"; x.globalAlpha = 1;
+      x.shadowBlur = 0; x.globalAlpha = 1;
       link!.href = c.toDataURL("image/png");
-      id = setTimeout(draw, 125);
+      id = setTimeout(draw, 120);
     };
     draw();
     return () => { clearTimeout(id); if (prev) link!.setAttribute("href", prev); };

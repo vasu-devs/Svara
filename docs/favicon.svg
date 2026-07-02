@@ -1,8 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <rect x="2.5" y="2.5" width="59" height="59" rx="17" fill="#0a0a0d" stroke="rgba(255,255,255,0.16)" stroke-width="2.4"/>
-  <g stroke-linecap="round" fill="none">
-    <path d="M12 32 q10 -13 20 0 t20 0" stroke="#ff5fa2" stroke-width="4.4"/>
-    <path d="M12 32 q10 13 20 0 t20 0" stroke="#22d3ee" stroke-width="4.4"/>
-    <path d="M12 32 q10 -7 20 0 t20 0" stroke="#8b5cf6" stroke-width="3.4" opacity="0.9"/>
+  <defs><filter id="g" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="1.5"/></filter></defs>
+  <g fill="none" stroke-linecap="round">
+    <g filter="url(#g)" stroke-width="3.2" opacity="0.75">
+      <path d="M4 32 q10 -13 20 0 t20 0 t20 0" stroke="#ff5fa2"/>
+      <path d="M4 32 q10 13 20 0 t20 0 t20 0" stroke="#22d3ee"/>
+      <path d="M4 32 q10 -8 20 0 t20 0 t20 0" stroke="#8b5cf6"/>
+      <path d="M4 32 q10 8 20 0 t20 0 t20 0" stroke="#ff5fa2"/>
+    </g>
+    <g stroke-width="1.6">
+      <path d="M4 32 q10 -13 20 0 t20 0 t20 0" stroke="#ff8fc4"/>
+      <path d="M4 32 q10 13 20 0 t20 0 t20 0" stroke="#7ee7f5"/>
+      <path d="M4 32 q10 -8 20 0 t20 0 t20 0" stroke="#b39bf7"/>
+    </g>
   </g>
 </svg>
