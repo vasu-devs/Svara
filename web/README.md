@@ -1,4 +1,4 @@
-# Svara — web (Next.js)
+# Svara web (Next.js)
 
 The interactive landing site for Svara. Next.js 14 (App Router) + Framer Motion,
 with a live canvas engine that renders the app's real visualizers.
