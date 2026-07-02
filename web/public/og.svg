@@ -1,10 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
-  <rect width="1200" height="630" fill="#f4f0e6"/>
-  <rect x="24" y="24" width="1152" height="582" fill="none" stroke="#1a160f" stroke-width="3"/>
-  <text x="80" y="150" font-family="'Space Mono', monospace" font-size="26" letter-spacing="6" fill="#4a4438">LOCAL DICTATION / WINDOWS</text>
-  <text x="76" y="330" font-family="'Syne', Arial, sans-serif" font-size="140" font-weight="800" fill="#1a160f" letter-spacing="-4">Your voice,</text>
-  <text x="76" y="470" font-family="'Syne', Arial, sans-serif" font-size="140" font-weight="800" letter-spacing="-4"><tspan fill="#1a160f">set in </tspan><tspan fill="#ff4a1c">type.</tspan></text>
-  <path d="M76 545 C140 505, 200 585, 264 545 S392 505, 456 545 S584 585, 648 545" stroke="#1a160f" stroke-width="4" fill="none" stroke-linecap="round"/>
-  <path d="M672 545 C736 520, 800 570, 864 545 S992 520, 1056 545" stroke="#ff4a1c" stroke-width="4" fill="none" stroke-linecap="round"/>
-  <text x="1120" y="150" text-anchor="end" font-family="'Syne', Arial, sans-serif" font-size="40" font-weight="800" fill="#1a160f">Svara</text>
+  <defs><linearGradient id="rib" x1="150" y1="470" x2="1050" y2="520" gradientUnits="userSpaceOnUse"><stop stop-color="#ff5fa2"/><stop offset="0.5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs>
+  <rect width="1200" height="630" fill="#0a0b0d"/>
+  <rect width="1200" height="630" fill="url(#glow)"/>
+  <radialGradient id="glow" cx="0.5" cy="0" r="0.8"><stop stop-color="#8b5cf6" stop-opacity="0.12"/><stop offset="1" stop-color="#0a0b0d" stop-opacity="0"/></radialGradient>
+  <text x="80" y="150" font-family="'JetBrains Mono', monospace" font-size="24" letter-spacing="5" fill="#98a0ac">VOICE DICTATION / WINDOWS</text>
+  <text x="76" y="330" font-family="'Space Grotesk', Arial, sans-serif" font-size="150" font-weight="700" fill="#edeff3" letter-spacing="-5">Speak.</text>
+  <text x="76" y="470" font-family="'Space Grotesk', Arial, sans-serif" font-size="150" font-weight="700" letter-spacing="-5"><tspan fill="#edeff3">It's </tspan><tspan fill="#22d3ee">written.</tspan></text>
+  <path d="M76 545 C150 505, 230 585, 300 545 S430 505, 500 545 S630 585, 700 545 S830 505, 900 545 S1030 585, 1100 545" stroke="url(#rib)" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+  <text x="1120" y="150" text-anchor="end" font-family="'Space Grotesk', Arial, sans-serif" font-size="40" font-weight="700" fill="#edeff3">Svara</text>
 </svg>
