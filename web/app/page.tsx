@@ -6,8 +6,9 @@ import { Visualizer } from "@/components/Visualizer";
 import { THEMES, STYLES, speak, setPointer } from "@/lib/engine";
 
 const THEME_KEYS = ["aurora", "cyberpunk", "matrix", "sakura", "dracula", "vaporwave"];
-// Direct asset URL: one click downloads the file, no releases page, no scroll.
-const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-Windows.zip";
+// Direct asset URLs: one click downloads, no releases page, no scroll.
+const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara.exe";           // ~110 MB, runs on any PC
+const DOWNLOAD_GPU = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-Windows-GPU.zip"; // GPU pack
 
 function Reveal({ children, className, delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -101,12 +102,12 @@ export default function Page() {
         <section className="kcta" id="get">
           <Reveal><span className="eyebrow">Get Svara</span></Reveal>
           <Reveal delay={0.05}><h2>Speak it.<br />Ship it. <em>Free.</em></h2></Reveal>
-          <Reveal delay={0.1}><p>Windows 10 and 11. NVIDIA GPU for the fast path, CPU still works. The model downloads once, then it runs fully offline.</p></Reveal>
+          <Reveal delay={0.1}><p>One 110 MB download that just runs. No installer, no unzip, no GPU required. Works on any Windows 10 or 11 PC; the model downloads once, then it runs fully offline.</p></Reveal>
           <Reveal delay={0.15}><div className="kcta-actions">
-            <Magnetic><a className="btn group btn-solid" style={{ fontSize: "1.05rem", padding: ".85rem .85rem .85rem 1.6rem" }} href={DOWNLOAD}><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+            <Magnetic><a className="btn group btn-solid" style={{ fontSize: "1.05rem", padding: ".85rem .85rem .85rem 1.6rem" }} href={DOWNLOAD}><span>Download Svara.exe</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
             <a className="btn btn-ghost" style={{ fontSize: "1.05rem", padding: ".85rem 1.7rem" }} href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">Star on GitHub</a>
           </div></Reveal>
-          <Reveal delay={0.2}><p className="kcta-note">Open source · built on faster-whisper · your voice never leaves your machine</p></Reveal>
+          <Reveal delay={0.2}><p className="kcta-note">~110 MB · Windows 10/11 · download and run · <a href={DOWNLOAD_GPU} className="kcta-gpu">have an NVIDIA GPU? get the GPU pack ↗</a></p></Reveal>
         </section>
       </main>
 

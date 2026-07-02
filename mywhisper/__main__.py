@@ -105,9 +105,9 @@ def main() -> int:
 
     from . import config as config_mod
 
-    from .paths import config_path, state_path
+    from .paths import ensure_config, state_path
 
-    cfg_path = args.config or config_path()
+    cfg_path = args.config or ensure_config()
     cfg = config_mod.load(cfg_path)
 
     # Last theme/visualizer picked via tray or pill buttons wins over config.

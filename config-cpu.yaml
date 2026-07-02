@@ -1,0 +1,108 @@
+# ======================================================================
+# MyWhisper configuration
+# Every key here is optional — missing keys fall back to these defaults.
+# ======================================================================
+
+model:
+  name: base        # ANY Whisper model — pick for your VRAM/accuracy tradeoff:
+                              #   tiny (~1GB) · base · small · medium · distil-large-v3
+                              #   large-v3 (most accurate) · large-v3-turbo (best speed/accuracy)
+                              # Multilingual models (all but *.en) understand 90+ languages.
+  device: cpu                # cuda | cpu | auto
+  compute_type: int8            # CPU
+                              # CPU: int8
+  language: en                # LANGUAGE you dictate in: ISO code (en, hi, es, fr, de, it, pt,
+                              #   ja, ko, zh, ru, ar, ...) — or null to AUTO-DETECT each time.
+  task: transcribe            # transcribe = write it in the language you spoke
+                              # translate  = speak ANY language, get ENGLISH text at your cursor
+  stream_language: en         # language used for LIVE partials when language is null/auto
+                              #   (auto-detect is unreliable on tiny live buffers)
+  beam_size: 2                # final-pass beam: 2 = good, 1 = fastest, 5 = whisper default
+  partial_beam_size: 2        # live-streaming beam: 2 balances speed and accuracy (1=fastest, 5=most accurate)
+  initial_prompt: null        # vocabulary hint, e.g. "MyWhisper, faster-whisper, CTranslate2"
+  download_root: null         # model cache dir (null = HuggingFace default)
+
+recording:
+  mode: hold_to_record        # hold_to_record:  hold key = talk · tap = cancel · DOUBLE-TAP = hands-free
+                              # press_to_toggle: press hotkey → speak → press again to stop
+  hotkey: right alt           # DOUBLE-TAP right alt = start hands-free → tap once = stop & type
+                              #   hold right alt = push-to-talk. Fully suppressed (never opens app menus).
+                              #   Fn is firmware-only on this laptop (probed twice) and cannot be hooked.
+                              # COMBOS also work: ctrl+shift+space, ctrl+win, alt+v
+                              # other single keys: f8, num 0, caps lock, scroll lock, pause
+  long_press_ms: 250          # (single-key hold mode) held shorter than this = tap (cancel)
+  double_tap_lock: true       # (single-key hold mode) double-tap = hands-free lock
+  double_tap_ms: 400
+  suppress_key: false         # false = poll-only, NO system keyboard hook (robust, recommended;
+                              #   the key is observed but not hidden from other apps)
+                              # true  = install a low-level hook to swallow the key globally
+                              #   (only if you need the key hidden; can lag input under heavy load)
+  preroll_ms: 1000            # audio kept from BEFORE you press the hotkey (never lose the first word)
+  max_seconds: 600            # safety cap per utterance (10 min — was cutting you off at 2)
+  auto_stop:                  # (toggle mode) stop automatically after you go silent
+    enabled: false            # off by default — YOU decide when it stops; set true if you
+    silence_ms: 900           #   want it to auto-finish ~0.9s after you stop talking
+    min_speech_ms: 300
+
+injection:
+  method: type                # type  = Win32 SendInput, char-perfect, clipboard untouched
+                              # paste = clipboard + Ctrl+V, fastest for long text
+  append_space: true          # trailing space so consecutive dictations join nicely
+  restore_clipboard: true     # (paste method) restore your old clipboard afterwards
+
+cleanup:
+  strip_fillers: true         # cheap regex removal of um/uh/erm...
+  expressive:                 # 🔊 voice-aware formatting
+    enabled: true
+    caps_ratio: 2.5           # segment ≥2.5× louder than the utterance median → TYPES IN CAPS
+  llm:                        # the "Wispr magic" — needs Ollama running locally
+    enabled: false            # flip to true after: ollama pull qwen2.5:3b-instruct
+    url: http://localhost:11434
+    model: qwen2.5:3b-instruct
+    timeout_s: 20
+    keep_alive: 10m
+    prompt: |
+      You are a dictation post-processor. Rewrite the dictated text with correct
+      punctuation, capitalization and paragraph breaks. Remove filler words, false
+      starts and stutters. Apply the speaker's self-corrections. Never add new
+      content, never answer questions found in the text, never translate.
+      Output ONLY the cleaned text.
+
+streaming:
+  mode: off                  # live    = words are TYPED at your cursor in real time as you talk
+                              # preview = words only shown inside the pill; typed after you stop
+                              # off     = classic batch (transcribe only after you stop)
+  interval_ms: 180            # how often the rolling buffer is re-transcribed (lower = snappier)
+  min_audio_s: 0.35           # wait for this much audio before the first word appears
+
+audio:
+  sample_rate: 16000
+  block_size: 512
+  input_device: null          # null = default mic; see: python -m mywhisper --list-devices
+
+ui:
+  sounds: true                # beep on record start/stop
+  tray: true                  # system tray icon with theme picker + toggles
+  overlay: true               # on-screen "Listening…" pill with live mic level
+  theme: minimal-dark         # minimal-dark | minimal-light | matrix | cyberpunk
+                              # | sakura | evangelion | saiyan | vaporwave
+                              # (also switchable live: tray icon ▸ Theme — that choice persists)
+  theme_overrides: {}         # tweak any theme key, e.g.:
+                              #   theme_overrides: { accent: "#ff00aa", label_listening: "yo, talk" }
+  position: bottom            # bottom | top
+  offset_px: 80               # distance from screen edge
+  scale: 1.0                  # make the pill bigger/smaller
+  pill_width: 195             # pill length in px (slightly wider for the 3 buttons)
+  wave: strings               # visualizer: strings | spectrum | bars | scope | pulse
+                              #   | particles | beam (kamehameha!) | pixels (8-bit)
+                              #   (or click the ✦ diamond on the pill to cycle live)
+  wave_weight: 1.0            # thickness multiplier — 0.6 thinner, 1.6 chunkier
+  bg: gradient                # pill background: gradient | solid | aurora | carbon | nebula
+                              #   | rain (Matrix) | aura (Saiyan flames) | petals (sakura)
+                              #   | synthwave (outrun grid) | invaders (8-bit march)
+                              #   (or RIGHT-CLICK the pill to cycle live)
+  compact: true               # minimal waveform-only pill — just the dot + wave, no text
+  glass: false                # (system acrylic blur is broken on this Win11 build)
+  style: siri                 # siri  = Apple-Siri-style flowing glowing strings (recommended)
+                              # metal = brushed gunmetal with chrome banding + bevels
+                              # glass = hand-rendered liquid glass (gradient + sheen)

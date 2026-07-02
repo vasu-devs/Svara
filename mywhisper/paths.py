@@ -3,6 +3,7 @@
 Frozen (.exe): next to the executable, so users can edit config.yaml and keep
 state/logs beside the app. Source run: the project root.
 """
+import shutil
 import sys
 from pathlib import Path
 
@@ -15,6 +16,22 @@ def base_dir() -> Path:
 
 def config_path() -> Path:
     return base_dir() / "config.yaml"
+
+
+def ensure_config() -> Path:
+    """First run of a frozen build (.exe): drop the bundled default config.yaml
+    next to the executable so it loads the intended defaults and users can edit
+    it. (PyInstaller bundles data under _internal/_MEIPASS, not next to the exe.)
+    """
+    p = config_path()
+    if not p.exists() and getattr(sys, "frozen", False):
+        bundled = Path(getattr(sys, "_MEIPASS", base_dir())) / "config.yaml"
+        try:
+            if bundled.is_file():
+                shutil.copyfile(bundled, p)
+        except OSError:
+            pass
+    return p
 
 
 def state_path() -> Path:

@@ -178,6 +178,8 @@ html{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
 .kcta p{color:var(--text-2);font-size:1.14rem;max-width:44ch;margin:1.6rem auto 2.2rem;line-height:1.5}
 .kcta-actions{display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap;align-items:center}
 .kcta-note{font-family:var(--font-mono),monospace;font-size:.78rem;color:var(--text-3);margin-top:1.6rem}
+.kcta-gpu{color:var(--accent);transition:opacity .3s;white-space:nowrap}
+.kcta-gpu:hover{opacity:.75}
 
 /* footer */
 .footer{max-width:var(--maxw);margin:0 auto;padding:clamp(4rem,9vh,7rem) var(--pad) 1.8rem;border-top:1px solid var(--hair)}
