@@ -76,9 +76,12 @@ subscription, no telemetry, and it works offline.
   — still fully offline.
 - **Works in every app.** System-wide text injection places words at the cursor
   anywhere you can type.
-- **A UI you enjoy.** Eight live sound visualizers, pop-culture themes (Matrix,
-  Cyberpunk, Sakura, Evangelion, Saiyan, Vaporwave, plus clean minimal), and a
-  draggable pill overlay that dodges your cursor so it never covers your text.
+- **A UI you enjoy.** Eight live sound visualizers and pop-culture themes (Matrix,
+  Cyberpunk, Sakura, Evangelion, Saiyan, Vaporwave, plus clean minimal).
+- **Gets out of your way, automatically.** The pill reads the **text caret** of
+  the focused app (`GetGUIThreadInfo`, with a UI-Automation fallback for browsers
+  and Electron) and slides aside the instant it would cover what you are typing,
+  easing back home when the coast is clear. You can also just drag it anywhere.
 - **Always on, safe for your system.** Lives in the tray, restarts itself if it
   crashes, and uses a **poll-only** hotkey with no global keyboard hook, so it
   never interferes with your typing.

@@ -85,6 +85,8 @@ export default function Page() {
             ["Cleaned up as you talk", "Automatic punctuation, filler removal (um, uh), and self-corrections on the fly. Optional local-LLM polish via Ollama, still offline."],
             ["Writes into every app", "System-wide injection places your words at the cursor anywhere you can type: Slack, VS Code, browsers, terminals."],
             ["Eight meters, your theme", "Eight live visualizers and pop-culture themes: Matrix, Cyberpunk, Sakura, Evangelion, Saiyan, Vaporwave, and clean minimal."],
+            ["It moves out of your way", "The pill reads the text caret of the app you are in and slides aside the instant it would cover what you are typing, easing back when the coast is clear. Works even in browsers and Electron apps."],
+            ["Never fights your typing", "A poll-only hotkey watches one key with no global keyboard hook, so it never adds input lag. Lives in the tray and restarts itself if it ever hiccups."],
             ["Free and open source", "No account, no subscription, no telemetry on your voice. The whole thing is yours to read, fork, and build."],
           ].map(([h, p], i) => <div className="kf" key={h}><span className="kf-n">{String(i + 1).padStart(2, "0")}</span><div><h3>{h}</h3><p>{p}</p></div></div>)}</Reveal>
         </section>
