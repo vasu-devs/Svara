@@ -152,9 +152,29 @@ def main() -> int:
         )
         return 0
 
+    # First run of the packaged app: show a setup window (welcome + how-to +
+    # model chooser) and pre-load the chosen model so the app isn't a silent
+    # mystery while the model downloads.
+    transcriber = None
+    from .paths import base_dir
+    setup_flag = base_dir() / ".svara_ready"
+    if (getattr(sys, "frozen", False) and not setup_flag.exists()
+            and not args.no_tray and cfg["ui"].get("tray", True)):
+        try:
+            from .setup_ui import run_setup
+            model, transcriber = run_setup(cfg, cfg_path)
+            if model:
+                cfg["model"]["name"] = model
+                try:
+                    setup_flag.write_text("ok", encoding="utf-8")
+                except OSError:
+                    pass
+        except Exception:  # noqa: BLE001 — never let setup block the app
+            logging.getLogger(__name__).debug("setup window failed", exc_info=True)
+
     from .app import MyWhisperApp
 
-    app = MyWhisperApp(cfg, no_tray=args.no_tray)
+    app = MyWhisperApp(cfg, no_tray=args.no_tray, transcriber=transcriber)
     app.run()
     return 0
 

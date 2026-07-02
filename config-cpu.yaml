@@ -69,11 +69,11 @@ cleanup:
       Output ONLY the cleaned text.
 
 streaming:
-  mode: off                  # live    = words are TYPED at your cursor in real time as you talk
+  mode: live                  # live    = words are TYPED at your cursor in real time as you talk
                               # preview = words only shown inside the pill; typed after you stop
                               # off     = classic batch (transcribe only after you stop)
-  interval_ms: 180            # how often the rolling buffer is re-transcribed (lower = snappier)
-  min_audio_s: 0.35           # wait for this much audio before the first word appears
+  interval_ms: 240            # how often the rolling buffer is re-transcribed (lower = snappier)
+  min_audio_s: 0.4           # wait for this much audio before the first word appears
 
 audio:
   sample_rate: 16000

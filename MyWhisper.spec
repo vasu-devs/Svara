@@ -33,7 +33,8 @@ if not CPU_ONLY:
 # Ship a default config next to the exe (users can edit it).
 datas += [("config.yaml", ".")]
 
-hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths"]
+hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
+                  "mywhisper.setup_ui", "tkinter", "tkinter.ttk"]
 
 a = Analysis(
     ["app_entry.py"],

@@ -35,7 +35,7 @@ except ImportError:  # non-Windows dev machine
 
 
 class MyWhisperApp:
-    def __init__(self, cfg: dict, no_tray: bool = False):
+    def __init__(self, cfg: dict, no_tray: bool = False, transcriber=None):
         self.cfg = cfg
         self.paused = False
         self._stop_lock = threading.Lock()
@@ -66,7 +66,8 @@ class MyWhisperApp:
             ),
             on_move=lambda x, y: self._save_state(pos=[x, y]),
         )
-        self.transcriber = Transcriber(cfg["model"])  # loads + warms up the model
+        # Reuse a transcriber already loaded during first-run setup, else load now.
+        self.transcriber = transcriber or Transcriber(cfg["model"])  # loads + warms up
 
         self.hotkey = create_listener(
             cfg["recording"],
