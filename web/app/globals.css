@@ -25,11 +25,18 @@ canvas{display:block}
 ::selection{background:color-mix(in srgb,var(--accent) 32%,transparent);color:#fff}
 :focus-visible{outline:none;box-shadow:0 0 0 2px var(--bg),0 0 0 4px color-mix(in srgb,var(--accent) 55%,transparent);border-radius:8px}
 
-/* ethereal orbs + grain (fixed, subtle) */
-.orbs{position:fixed;inset:0;z-index:-2;pointer-events:none;overflow:hidden}
-.orbs::before,.orbs::after{content:"";position:absolute;border-radius:50%;filter:blur(120px);opacity:.16}
-.orbs::before{width:640px;height:640px;top:-16%;left:8%;background:color-mix(in srgb,var(--accent) 70%,transparent);transition:background .6s var(--e)}
-.orbs::after{width:520px;height:520px;top:12%;right:2%;background:#8b5cf6}
+/* "signal field" backdrop: architectural grid + drifting waveform lines +
+   grain. Monochrome, no colour gradients. All colour lives in the product. */
+.bg-grid{position:fixed;inset:0;z-index:-3;pointer-events:none;
+  background-image:linear-gradient(rgba(255,255,255,.032) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.032) 1px,transparent 1px);
+  background-size:60px 60px;background-position:center top;
+  -webkit-mask-image:radial-gradient(118% 78% at 50% -4%,#000 22%,transparent 72%);mask-image:radial-gradient(118% 78% at 50% -4%,#000 22%,transparent 72%)}
+.bg-waves{position:fixed;left:-6%;right:-6%;top:16%;height:64%;z-index:-2;pointer-events:none;opacity:.75;
+  background-repeat:repeat-x;background-position:0 center;background-size:240px 340px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='340'%3E%3Cg fill='none' stroke='rgba(255,255,255,0.05)' stroke-width='1.4'%3E%3Cpath d='M0,96 q60,-46 120,0 t120,0'/%3E%3Cpath d='M0,150 q60,54 120,0 t120,0'/%3E%3Cpath d='M0,206 q60,-38 120,0 t120,0'/%3E%3Cpath d='M0,262 q60,44 120,0 t120,0'/%3E%3C/g%3E%3C/svg%3E");
+  -webkit-mask-image:radial-gradient(72% 90% at 50% 50%,#000,transparent 78%);mask-image:radial-gradient(72% 90% at 50% 50%,#000,transparent 78%);
+  animation:wavedrift 34s linear infinite}
+@keyframes wavedrift{to{background-position-x:-240px}}
 .grain{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:.02;mix-blend-mode:overlay;
   background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
 

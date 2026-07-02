@@ -48,7 +48,8 @@ export default function Page() {
 
   return (
     <>
-      <div className="orbs" aria-hidden />
+      <div className="bg-grid" aria-hidden />
+      <div className="bg-waves" aria-hidden />
       <div className="grain" aria-hidden />
 
       <header className="nav-wrap">
