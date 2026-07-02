@@ -4,10 +4,19 @@
 # ======================================================================
 
 model:
-  name: large-v3-turbo        # tiny | base | small | medium | large-v3 | large-v3-turbo
+  name: large-v3-turbo        # ANY Whisper model — pick for your VRAM/accuracy tradeoff:
+                              #   tiny (~1GB) · base · small · medium · distil-large-v3
+                              #   large-v3 (most accurate) · large-v3-turbo (best speed/accuracy)
+                              # Multilingual models (all but *.en) understand 90+ languages.
   device: cuda                # cuda | cpu | auto
   compute_type: int8_float16  # GPU: int8_float16 (~1.5GB VRAM, fastest) | float16
-  language: en                # ISO code (en, hi, ...) or null for auto-detect
+                              # CPU: int8
+  language: en                # LANGUAGE you dictate in: ISO code (en, hi, es, fr, de, it, pt,
+                              #   ja, ko, zh, ru, ar, ...) — or null to AUTO-DETECT each time.
+  task: transcribe            # transcribe = write it in the language you spoke
+                              # translate  = speak ANY language, get ENGLISH text at your cursor
+  stream_language: en         # language used for LIVE partials when language is null/auto
+                              #   (auto-detect is unreliable on tiny live buffers)
   beam_size: 2                # final-pass beam: 2 = good, 1 = fastest, 5 = whisper default
   partial_beam_size: 2        # live-streaming beam: 2 balances speed and accuracy (1=fastest, 5=most accurate)
   initial_prompt: null        # vocabulary hint, e.g. "MyWhisper, faster-whisper, CTranslate2"

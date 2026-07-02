@@ -74,15 +74,19 @@ export default function Page() {
 
         {/* FEATURES */}
         <section className="kfeat">
-          <Reveal className="kfeat-head"><span className="eyebrow">Engineering</span><h2 style={{ marginTop: "1.2rem" }}>Built to <em>disappear.</em></h2></Reveal>
+          <Reveal className="kfeat-head"><span className="eyebrow">Capabilities</span><h2 style={{ marginTop: "1.2rem" }}>Everything it <em>does.</em></h2></Reveal>
           <Reveal className="kfeat-grid">{[
-            ["Private by architecture", "Audio is captured, written, and discarded on your own machine. It cannot reach a server, because there is no server."],
-            ["Fast on your own GPU", "faster-whisper on CTranslate2 running large-v3-turbo. Roughly a second from spoken to written."],
-            ["Works in every app", "System-wide text injection places your words at the cursor anywhere you can type."],
-            ["No system lag", "A poll-only hotkey watches one key with no global keyboard hook, so it never fights your typing."],
-            ["Always on, out of the way", "Lives in the tray, restarts itself if it hiccups, warms the model at launch for an instant first word."],
-            ["Free and open", "No subscription, no account, no telemetry on your voice. The whole thing is yours to read and build."],
-          ].map(([h, p], i) => <div className="kf" key={h}><span className="kf-n">{`0${i + 1}`}</span><div><h3>{h}</h3><p>{p}</p></div></div>)}</Reveal>
+            ["Runs on your own machine", "Audio is captured, written, and discarded locally. It cannot reach a server, because there is no server. Nothing to upload, ever."],
+            ["Instant on your GPU", "faster-whisper on CTranslate2, large-v3-turbo at int8 in ~1.5 GB of VRAM. Roughly a second from spoken to written."],
+            ["Ninety-plus languages", "Dictate in any language Whisper understands, or let it auto-detect what you speak each time. Not just English."],
+            ["Speak-to-translate", "Flip one switch and talk in any language: Svara writes clean English at your cursor. Your Spanish, its English."],
+            ["Any Whisper model", "From tiny to distil-large-v3 to large-v3-turbo. Trade speed for accuracy to fit whatever GPU you have."],
+            ["Shout to CAPITALISE", "Raise your voice on a word and it lands IN CAPS. Loudness-aware and shout-proof, so only real emphasis counts."],
+            ["Cleaned up as you talk", "Automatic punctuation, filler removal (um, uh), and self-corrections on the fly. Optional local-LLM polish via Ollama, still offline."],
+            ["Writes into every app", "System-wide injection places your words at the cursor anywhere you can type: Slack, VS Code, browsers, terminals."],
+            ["Eight meters, your theme", "Eight live visualizers and pop-culture themes: Matrix, Cyberpunk, Sakura, Evangelion, Saiyan, Vaporwave, and clean minimal."],
+            ["Free and open source", "No account, no subscription, no telemetry on your voice. The whole thing is yours to read, fork, and build."],
+          ].map(([h, p], i) => <div className="kf" key={h}><span className="kf-n">{String(i + 1).padStart(2, "0")}</span><div><h3>{h}</h3><p>{p}</p></div></div>)}</Reveal>
         </section>
 
         {/* CTA */}
@@ -169,6 +173,7 @@ function Hero({ theme, onTheme }: { theme: string; onTheme: (k: string) => void 
           <div className="kh-stats">
             <div><b>0</b><span>bytes uploaded</span></div>
             <div><b>~1s</b><span>spoken to written</span></div>
+            <div><b>90+</b><span>languages</span></div>
             <div><b>100%</b><span>on your machine</span></div>
           </div>
           <div className="kh-cta">

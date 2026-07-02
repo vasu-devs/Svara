@@ -77,7 +77,8 @@ class Transcriber:
             segments, _info = self.model.transcribe(
                 audio,
                 beam_size=int(self.cfg["beam_size"]),
-                language=self.cfg["language"],
+                language=self.cfg["language"],    # None → Whisper auto-detects the spoken language
+                task=self.cfg.get("task", "transcribe"),  # 'translate' → any language in, English out
                 initial_prompt=self.cfg["initial_prompt"],
                 vad_filter=True,                  # Silero VAD (bundled) trims silence
                 condition_on_previous_text=False, # avoids hallucination loops
@@ -96,10 +97,14 @@ class Transcriber:
         initial_prompt biases the vocabulary toward correct spellings.
         """
         with self._lock:
+            # For live partials over tiny buffers, auto-detect is unreliable, so fall
+            # back to a stream language (default en) when no language is pinned.
+            stream_lang = self.cfg["language"] or self.cfg.get("stream_language", "en")
             segments, _info = self.model.transcribe(
                 audio,
                 beam_size=int(self.cfg.get("partial_beam_size", 3)),
-                language=self.cfg["language"] or "en",
+                language=stream_lang,
+                task=self.cfg.get("task", "transcribe"),
                 initial_prompt=self.cfg.get("initial_prompt"),
                 vad_filter=True,
                 condition_on_previous_text=False,

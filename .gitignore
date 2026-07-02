@@ -16,3 +16,6 @@ build/
 # OS / editor
 Thumbs.db
 .DS_Store
+
+# GitHub Pages is built from web/ by the deploy workflow, not committed
+docs/
