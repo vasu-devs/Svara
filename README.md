@@ -60,9 +60,17 @@ double-click. No Python required. See `SHIP.md` for details.
 
 ## Website
 
-The landing page lives in [`docs/`](docs/) and is a static site served via
-GitHub Pages. The hero features a live recreation of Svara's flowing-strings
-pill, running the same visualizer math as the app.
+Two front ends, same identity:
+
+- [`web/`](web/) — the flagship **Next.js + Framer Motion** app, built for Vercel.
+  Draggable physics pill, cursor-reactive ribbons, a scroll-driven visualizer
+  showcase, and tap-to-recolor theming. See [`web/README.md`](web/README.md) to
+  deploy (set the Vercel root directory to `web`).
+- [`docs/`](docs/) — a zero-build static version served on GitHub Pages at
+  https://vasu-devs.github.io/Svara/.
+
+Both feature a live recreation of Svara's flowing-strings pill, running the same
+visualizer math as the desktop app.
 
 ## Requirements
 
