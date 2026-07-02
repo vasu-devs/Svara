@@ -14,7 +14,7 @@ export function Visualizer({
     const c = ref.current; if (!c) return;
     const io = new IntersectionObserver(([e]) => { visible.current = e.isIntersecting; }, { rootMargin: "120px" });
     io.observe(c);
-    const getTheme = (): Theme => THEMES[themeRef.current] || THEMES.aurora;
+    const getTheme = (): Theme => THEMES[themeRef.current] || THEMES.vermillion;
     const unregister = register(c, () => styleRef.current, getTheme, () => visible.current, hero);
     return () => { io.disconnect(); unregister(); };
   }, [hero]);

@@ -1,24 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" fill="none">
-  <defs>
-    <linearGradient id="rib" x1="300" y1="300" x2="900" y2="360" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#ff5fa2"/>
-      <stop offset="0.5" stop-color="#8b5cf6"/>
-      <stop offset="1" stop-color="#22d3ee"/>
-    </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.42" r="0.6">
-      <stop stop-color="#1a1440" stop-opacity="0.9"/>
-      <stop offset="1" stop-color="#08090d" stop-opacity="0"/>
-    </radialGradient>
-  </defs>
-  <rect width="1200" height="630" fill="#08090d"/>
-  <rect width="1200" height="630" fill="url(#glow)"/>
-  <!-- pill -->
-  <rect x="360" y="250" width="480" height="120" rx="60" fill="#12141b" stroke="#2a2e3a" stroke-width="2"/>
-  <circle cx="410" cy="310" r="9" fill="#ff5fa2"/>
-  <path d="M450 310 C500 268, 560 352, 620 310 S740 268, 800 310" stroke="url(#rib)" stroke-width="5" fill="none" stroke-linecap="round"/>
-  <path d="M450 310 C500 352, 560 268, 620 310 S740 352, 800 310" stroke="url(#rib)" stroke-width="3.5" fill="none" stroke-linecap="round" opacity="0.6"/>
-  <!-- wordmark -->
-  <text x="600" y="150" font-family="'Space Grotesk', Arial, sans-serif" font-size="86" font-weight="700" fill="#f2f3f7" text-anchor="middle" letter-spacing="-2">Svara</text>
-  <text x="600" y="470" font-family="Arial, sans-serif" font-size="34" font-weight="600" fill="#c7cbd4" text-anchor="middle">Private voice dictation that runs on your own machine</text>
-  <text x="600" y="522" font-family="Arial, sans-serif" font-size="24" fill="#8990a0" text-anchor="middle">Local. Free. Instant. Open source.</text>
+  <rect width="1200" height="630" fill="#f4f0e6"/>
+  <rect x="24" y="24" width="1152" height="582" fill="none" stroke="#1a160f" stroke-width="3"/>
+  <text x="80" y="150" font-family="'Space Mono', monospace" font-size="26" letter-spacing="6" fill="#4a4438">LOCAL DICTATION / WINDOWS</text>
+  <text x="76" y="330" font-family="'Syne', Arial, sans-serif" font-size="140" font-weight="800" fill="#1a160f" letter-spacing="-4">Your voice,</text>
+  <text x="76" y="470" font-family="'Syne', Arial, sans-serif" font-size="140" font-weight="800" letter-spacing="-4"><tspan fill="#1a160f">set in </tspan><tspan fill="#ff4a1c">type.</tspan></text>
+  <path d="M76 545 C140 505, 200 585, 264 545 S392 505, 456 545 S584 585, 648 545" stroke="#1a160f" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M672 545 C736 520, 800 570, 864 545 S992 520, 1056 545" stroke="#ff4a1c" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <text x="1120" y="150" text-anchor="end" font-family="'Syne', Arial, sans-serif" font-size="40" font-weight="800" fill="#1a160f">Svara</text>
 </svg>
