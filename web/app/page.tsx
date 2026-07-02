@@ -50,6 +50,7 @@ export default function Page() {
 
   return (
     <>
+      <div className="grain" aria-hidden />
       <header className={`nav ${scrolled ? "scrolled" : ""}`}>
         <a className="brand" href="#top"><span className="brand-orb"><Visualizer style="scope" themeKey={theme} /></span><span>Svara</span></a>
         <nav className="nav-links"><a href="#demo">Demo</a><a href="#showcase">Visualizers</a><a href="#themes">Themes</a><a href="#tech">Tech</a></nav>
