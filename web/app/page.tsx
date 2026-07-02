@@ -110,6 +110,19 @@ export default function Page() {
 function Hero({ theme, onTheme }: { theme: string; onTheme: (k: string) => void }) {
   const reduce = useReducedMotion();
   const waveRef = useRef<HTMLDivElement>(null);
+  const PHRASES = ["your own GPU did all the work.", "nothing ever left your laptop.", "punctuation, added automatically.", "said out loud, written in a blink."];
+  const [typed, setTyped] = useState(reduce ? PHRASES[0] : "");
+  useEffect(() => {
+    if (reduce) return;
+    let pi = 0, ci = 0, dir = 1, timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const p = PHRASES[pi]; setTyped(p.slice(0, ci));
+      if (dir > 0) { if (ci === 0) speak(p.length * 52 + 500); ci++; if (ci > p.length) { dir = -1; timer = setTimeout(tick, 1600); return; } }
+      else { ci--; if (ci < 0) { ci = 0; dir = 1; pi = (pi + 1) % PHRASES.length; timer = setTimeout(tick, 320); return; } }
+      timer = setTimeout(tick, dir > 0 ? 46 : 22);
+    };
+    tick(); return () => clearTimeout(timer);
+  }, [reduce]);
   return (
     <section className="khero">
       <span className="eyebrow kh-eyebrow">Voice dictation · Windows · Local &amp; free</span>
@@ -122,6 +135,10 @@ function Hero({ theme, onTheme }: { theme: string; onTheme: (k: string) => void 
         onPointerLeave={() => setPointer(0.5, 0)}>
         <Visualizer style="strings" themeKey={theme} hero />
       </div>
+      <div className="kh-live">
+        <span className="kh-rec"><i />Transcribing</span>
+        <span className="kh-type">{typed}<span className="kh-caret" /></span>
+      </div>
       <div className="kh-foot">
         <div>
           <p className="kh-lede">Svara floats over any app and writes down what you say, the instant you say it, on your own GPU. Nothing ever leaves your machine.</p>
@@ -130,9 +147,16 @@ function Hero({ theme, onTheme }: { theme: string; onTheme: (k: string) => void 
             <div className="swatches">{THEME_KEYS.map((k) => <button key={k} className={`swatch ${theme === k ? "on" : ""}`} aria-label={THEMES[k].name} style={{ background: THEMES[k].accent }} onClick={() => onTheme(k)} />)}</div>
           </div>
         </div>
-        <div className="kh-cta">
-          <Magnetic><a className="btn group btn-solid" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
-          <a className="btn btn-ghost" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">View source</a>
+        <div className="kh-foot-r">
+          <div className="kh-stats">
+            <div><b>0</b><span>bytes uploaded</span></div>
+            <div><b>~1s</b><span>spoken to written</span></div>
+            <div><b>100%</b><span>on your machine</span></div>
+          </div>
+          <div className="kh-cta">
+            <Magnetic><a className="btn group btn-solid" href="#get"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+            <a className="btn btn-ghost" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">View source</a>
+          </div>
         </div>
       </div>
     </section>
