@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { motion, useMotionValue, useSpring, useScroll, useMotionValueEvent, useInView, animate, useReducedMotion } from "framer-motion";
 import { Visualizer } from "@/components/Visualizer";
-import { STYLES, speak, setPointer } from "@/lib/engine";
+import { THEMES, STYLES, speak, setPointer } from "@/lib/engine";
 
 const EASE = [0.32, 0.72, 0, 1] as const;
-const MONO = "mono"; // visualizers render monochrome; theme key is irrelevant to colour
+const THEME_KEYS = ["aurora", "cyberpunk", "matrix", "sakura", "dracula", "vaporwave"];
 
 function Reveal({ children, className, delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -42,6 +42,10 @@ function CountUp({ to, dec = 0, suffix = "" }: { to: number; dec?: number; suffi
 }
 
 export default function Page() {
+  const [theme, setTheme] = useState("aurora");
+  function morph(key: string) { const t = THEMES[key]; document.documentElement.style.setProperty("--accent", t.accent); document.documentElement.style.setProperty("--dot", t.dot); setTheme(key); speak(1600); }
+  useEffect(() => { document.documentElement.style.setProperty("--accent", THEMES.aurora.accent); document.documentElement.style.setProperty("--dot", THEMES.aurora.dot); }, []);
+
   return (
     <>
       <div className="bg-grid" aria-hidden />
@@ -50,14 +54,14 @@ export default function Page() {
 
       <header className="nav-wrap">
         <div className="nav-pill">
-          <a className="nav-brand" href="#top"><span className="nav-orb"><Visualizer style="scope" themeKey={MONO} /></span><span>Svara</span></a>
-          <nav className="nav-mid"><a href="#demo">Demo</a><a href="#showcase">Visualizers</a><a href="#tech">Tech</a></nav>
+          <a className="nav-brand" href="#top"><span className="nav-orb"><Visualizer style="scope" themeKey={theme} /></span><span>Svara</span></a>
+          <nav className="nav-mid"><a href="#demo">Demo</a><a href="#showcase">Visualizers</a><a href="#themes">Themes</a><a href="#tech">Tech</a></nav>
           <Magnetic s={0.2}><a className="btn group btn-solid nav-dl" href="#download"><span>Download</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
         </div>
       </header>
 
       <main id="top">
-        <Hero />
+        <Hero theme={theme} onTheme={morph} />
 
         <div className="marquee" aria-hidden><div className="marquee-track">{[0, 1].map((k) => <span className="mi" key={k}>{["Local", "Private", "Instant", "Free", "Open source", "Streaming", "Offline", "Yours"].map((w) => <span key={w}><span>{w}</span><span className="dot" /></span>)}</span>)}</div></div>
 
@@ -70,7 +74,14 @@ export default function Page() {
           </div>
         </section>
 
-        <Showcase />
+        <Showcase theme={theme} />
+
+        <section className="themes" id="themes">
+          <Reveal className="section-head"><span className="eyebrow">Make it yours</span><h2>Recolor it in <em>one tap.</em></h2><p className="section-sub">Tap a theme. The pill, the ribbons, and every accent on this page shift together, exactly like the tray menu on your desktop.</p></Reveal>
+          <Reveal className="theme-grid">{THEME_KEYS.map((k) => (
+            <button className={`theme bezel ${theme === k ? "active" : ""}`} key={k} onClick={() => morph(k)}><div className="core"><div className="theme-prev"><Visualizer style="strings" themeKey={k} /></div><div className="theme-row"><span className="theme-name">{THEMES[k].name}</span><span className="theme-tag">{THEMES[k].accent}</span></div></div></button>
+          ))}</Reveal>
+        </section>
 
         <section className="how">
           <Reveal className="section-head"><span className="eyebrow">The whole app</span><h2>Three moves. That is <em>it.</em></h2></Reveal>
@@ -87,11 +98,11 @@ export default function Page() {
             ["Private by architecture", "Your audio is captured, written, and discarded on your own machine. It cannot reach a server, because there is no server.", "lead"],
             ["Fast on your own GPU", "faster-whisper on CTranslate2, large-v3-turbo. Roughly a second from spoken to written.", "wide"],
             ["Works in every app", "System-wide text injection sets your words at the cursor anywhere you can type.", "wide"],
-            ["A pill you enjoy", "Eight visualizers and a draggable overlay that dodges your cursor so it never sits on your text.", ""],
+            ["A pill you enjoy", "Eight visualizers, a dozen themes, a draggable overlay that dodges your cursor.", ""],
             ["Always on, out of the way", "Lives in the tray, restarts itself, watches one key with no keyboard hook.", ""],
             ["Free and open", "No subscription, no account, no telemetry. Yours to read and build.", ""],
           ].map(([h, p, cls], i) => (
-            <div className={`feat ${cls} bezel`} key={h}><div className="core"><span className="fn">{`0${i + 1}`}</span>{cls === "lead" && <div className="fviz"><Visualizer style="scope" themeKey={MONO} /></div>}<h3>{h}</h3><p>{p}</p></div></div>
+            <div className={`feat ${cls} bezel`} key={h}><div className="core"><span className="fn">{`0${i + 1}`}</span>{cls === "lead" && <div className="fviz"><Visualizer style="strings" themeKey={theme} /></div>}<h3>{h}</h3><p>{p}</p></div></div>
           ))}</Reveal>
         </section>
 
@@ -132,7 +143,7 @@ export default function Page() {
       </main>
 
       <footer className="footer">
-        <div className="foot-top"><div className="foot-brand"><span className="nav-orb"><Visualizer style="scope" themeKey={MONO} /></span><span>Svara</span></div><div className="foot-links"><a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a><a href="#download">Download</a></div></div>
+        <div className="foot-top"><div className="foot-brand"><span className="nav-orb"><Visualizer style="scope" themeKey={theme} /></span><span>Svara</span></div><div className="foot-links"><a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a><a href="#download">Download</a></div></div>
         <p className="foot-fine">Private voice dictation that runs on your own machine. Open source, built on faster-whisper. Your voice stays with you.</p>
       </footer>
     </>
@@ -141,7 +152,7 @@ export default function Page() {
 
 /* ---------- hero ---------- */
 
-function Hero() {
+function Hero({ theme, onTheme }: { theme: string; onTheme: (k: string) => void }) {
   const reduce = useReducedMotion();
   const MSG = "Hey Alex, just wrapped the Q3 deck. Can you take a look before the sync tomorrow?";
   const [len, setLen] = useState(reduce ? MSG.length : 0);
@@ -168,6 +179,10 @@ function Hero() {
             <Magnetic><a className="btn group btn-solid btn-lg" href="#download"><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
             <a className="btn btn-ghost btn-lg" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">View source</a>
           </div>
+          <div className="hero-themes enter">
+            <span className="lbl">Theme</span>
+            <div className="swatches">{THEME_KEYS.map((k) => <button key={k} className={`swatch ${theme === k ? "on" : ""}`} aria-label={THEMES[k].name} style={{ background: THEMES[k].accent }} onClick={() => onTheme(k)} />)}</div>
+          </div>
         </div>
 
         <div className="scene enter" ref={stageRef}
@@ -185,7 +200,7 @@ function Hero() {
           <div className="pill-bezel">
             <div className="pill">
               <span className="pill-dot" />
-              <Visualizer style="strings" themeKey={MONO} hero className="pill-canvas" />
+              <Visualizer style="strings" themeKey={theme} hero className="pill-canvas" />
               <div className="pill-ctl"><i className="g" /><i className="d" /><i className="m" /></div>
             </div>
           </div>
@@ -193,7 +208,7 @@ function Hero() {
       </div>
 
       <div className="hero-stats">
-        {[[<CountUp key="a" to={0} />, "bytes uploaded"], [<CountUp key="b" to={0.3} dec={1} suffix="s" />, "per 5s of speech"], [<CountUp key="c" to={1.2} dec={1} suffix="GB" />, "VRAM used"], [<CountUp key="d" to={8} />, "live visualizers"]].map(([v, l], i) => <Reveal className="hstat" key={i} delay={i * 0.05}>{v}<span>{l}</span></Reveal>)}
+        {[[<CountUp key="a" to={0} />, "bytes uploaded"], [<CountUp key="b" to={0.3} dec={1} suffix="s" />, "per 5s of speech"], [<CountUp key="c" to={1.2} dec={1} suffix="GB" />, "VRAM used"], [<CountUp key="d" to={6} />, "colour themes"]].map(([v, l], i) => <Reveal className="hstat" key={i} delay={i * 0.05}>{v}<span>{l}</span></Reveal>)}
       </div>
     </section>
   );
@@ -201,7 +216,7 @@ function Hero() {
 
 /* ---------- showcase ---------- */
 
-function Showcase() {
+function Showcase({ theme }: { theme: string }) {
   const wrap = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: wrap, offset: ["start start", "end end"] });
   const [idx, setIdx] = useState(0);
@@ -211,7 +226,7 @@ function Showcase() {
       <div className="showcase-sticky">
         <div className="showcase-head"><span className="eyebrow">Meters</span><h2>Eight ways to see a <em>voice.</em></h2><p className="section-sub">Scroll through every visualizer that ships in the app. All live, all yours.</p></div>
         <div className="showcase-stage">
-          <div className="instrument bezel"><div className="core"><div className="ihead"><span className="live">Live</span><span>{STYLES[idx]}</span></div><Visualizer style={STYLES[idx]} themeKey={MONO} hero /></div></div>
+          <div className="instrument bezel"><div className="core"><div className="ihead"><span className="live">Live</span><span>{STYLES[idx]}</span></div><Visualizer style={STYLES[idx]} themeKey={theme} hero /></div></div>
           <div className="showcase-meta"><span className="showcase-num">{String(idx + 1).padStart(2, "0")}<span className="slash">/08</span></span><span className="showcase-name">{STYLES[idx]}</span></div>
           <ol className="showcase-list">{STYLES.map((s, i) => <li key={s} className={i === idx ? "on" : ""}>{s}</li>)}</ol>
         </div>

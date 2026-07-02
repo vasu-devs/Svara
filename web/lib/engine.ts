@@ -50,9 +50,8 @@ function loop(t: number) {
   nodes.forEach(n => { if (n.visible()) { n.ctx.clearRect(0, 0, n.w, n.h); draw(n, t, lv); } });
   if (nodes.size) requestAnimationFrame(loop); else running = false;
 }
-// Monochrome only. Depth comes from lightness, never colour.
-const MONO = ["rgba(255,255,255,0.92)", "rgba(255,255,255,0.5)", "rgba(255,255,255,0.26)"];
-const col = (_n: Node, i: number) => MONO[i % 3];
+// The product IS colour: ribbons render in the active theme's palette.
+const col = (n: Node, i: number) => n.theme().cols[i % 3];
 function disc(c: CanvasRenderingContext2D, x: number, y: number, r: number, s: string) { c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = s; c.fill(); }
 
 function draw(n: Node, t: number, lv: number) {
