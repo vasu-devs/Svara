@@ -10,36 +10,31 @@
 <meta property="og:description" content="Speak in any app. Text appears at your cursor. Nothing leaves your GPU. Free and open source.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="og.svg">
-<meta name="theme-color" content="#08090d">
+<meta name="theme-color" content="#07080b">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="grain" aria-hidden="true"></div>
+<div class="cursor-glow" id="cursorGlow" aria-hidden="true"></div>
 
 <!-- NAV -->
 <header class="nav" id="nav">
   <a class="brand" href="#top" aria-label="Svara home">
-    <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
-      <path d="M12 32 C20 12, 28 12, 32 32 S44 52, 52 32" stroke="url(#navg)" stroke-width="5" stroke-linecap="round" fill="none"/>
-      <path d="M12 32 C20 52, 28 52, 32 32 S44 12, 52 32" stroke="url(#navg)" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.55"/>
-      <defs><linearGradient id="navg" x1="8" y1="20" x2="56" y2="44" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#ff5fa2"/><stop offset="0.5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/>
-      </linearGradient></defs>
-    </svg>
+    <span class="brand-orb"><canvas id="navWave" width="60" height="30"></canvas></span>
     <span class="brand-word">Svara</span>
   </a>
   <nav class="nav-links" aria-label="Primary">
-    <a href="#how">How it works</a>
-    <a href="#features">Features</a>
-    <a href="#looks">Looks</a>
+    <a href="#demo">Demo</a>
+    <a href="#visualizers">Visualizers</a>
+    <a href="#themes">Themes</a>
     <a href="#tech">Under the hood</a>
   </nav>
   <div class="nav-cta">
     <a class="btn btn-ghost" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a>
-    <a class="btn btn-solid" href="#download">Download</a>
+    <a class="btn btn-solid magnetic" href="#download">Download</a>
   </div>
 </header>
 
@@ -47,167 +42,142 @@
 
 <!-- HERO -->
 <section class="hero">
-  <div class="hero-copy reveal">
-    <span class="eyebrow">Local voice dictation for Windows</span>
-    <h1>Dictate anywhere.<br>Nothing leaves<br>your <span class="grad">machine.</span></h1>
-    <p class="lede">Svara turns speech into text in any app, running entirely on your own GPU. Free, private, and fast enough to feel instant.</p>
-    <div class="hero-actions">
-      <a class="btn btn-solid btn-lg" href="#download">Download for Windows</a>
-      <a class="btn btn-ghost btn-lg" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">View source</a>
-    </div>
+  <div class="aurora" aria-hidden="true">
+    <span class="blob b1"></span><span class="blob b2"></span><span class="blob b3"></span>
   </div>
 
-  <div class="hero-stage reveal">
-    <div class="stage-glow" aria-hidden="true"></div>
-    <div class="pill" id="pill" role="img" aria-label="Live preview of the Svara recording pill with flowing audio ribbons">
-      <span class="pill-dot" id="pillDot"></span>
-      <canvas class="pill-canvas" id="wave" width="520" height="120"></canvas>
-      <div class="pill-controls" aria-hidden="true">
-        <span class="ctl ctl-grid"></span>
-        <span class="ctl ctl-diamond"></span>
-        <span class="ctl ctl-moon"></span>
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <span class="eyebrow reveal">Local voice dictation for Windows</span>
+      <h1 class="hero-title">Speak&nbsp;anywhere.<br>It types <em class="grad">itself.</em></h1>
+      <p class="lede reveal">Svara turns your voice into text in any app, on your own GPU. No cloud, no account, no waiting.</p>
+      <div class="hero-actions reveal">
+        <a class="btn btn-solid btn-lg magnetic" href="#download">
+          <svg viewBox="0 0 24 24" class="btn-ic" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Download for Windows
+        </a>
+        <a class="btn btn-ghost btn-lg" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">View source</a>
       </div>
     </div>
-    <div class="stage-hint">
-      <button class="try" id="tryBtn" type="button">Say something</button>
-      <div class="swatches" id="swatches" aria-label="Try a theme"></div>
+
+    <div class="hero-stage reveal">
+      <div class="stage-glow" aria-hidden="true"></div>
+      <div class="pill" id="pill" role="img" aria-label="Live preview of the Svara recording pill">
+        <span class="pill-dot" id="pillDot"></span>
+        <canvas class="pill-canvas" id="wave" width="560" height="120"></canvas>
+        <div class="pill-controls" aria-hidden="true"><span class="ctl ctl-grid"></span><span class="ctl ctl-diamond"></span><span class="ctl ctl-moon"></span></div>
+      </div>
+      <div class="type-line" aria-live="polite"><span id="typed"></span><span class="caret"></span></div>
+      <div class="stage-foot">
+        <button class="try magnetic" id="tryBtn" type="button">Say something</button>
+        <div class="swatches" id="swatches" aria-label="Try a theme"></div>
+      </div>
     </div>
   </div>
+
+  <div class="hero-stats" aria-label="Key facts">
+    <div class="hstat reveal"><b data-count="0">0</b><span>bytes uploaded</span></div>
+    <div class="hstat reveal"><b data-count="0.3" data-suffix="s" data-dec="1">0</b><span>for 5s of speech</span></div>
+    <div class="hstat reveal"><b data-count="1.2" data-suffix="GB" data-dec="1">0</b><span>VRAM used</span></div>
+    <div class="hstat reveal"><b data-count="12">0</b><span>themes, 8 visualizers</span></div>
+  </div>
 </section>
 
-<!-- STAT STRIP -->
-<section class="stats" aria-label="Key facts">
-  <div class="stat reveal"><span class="stat-num">0 bytes</span><span class="stat-label">uploaded, ever</span></div>
-  <div class="stat reveal"><span class="stat-num">~0.3<span class="unit">s</span></span><span class="stat-label">for 5s of speech, on an RTX 4060</span></div>
-  <div class="stat reveal"><span class="stat-num">1.2<span class="unit">GB</span></span><span class="stat-label">VRAM, leaves your GPU free</span></div>
-  <div class="stat reveal"><span class="stat-num">Free</span><span class="stat-label">and fully open source</span></div>
+<!-- MARQUEE -->
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track" id="marquee"></div>
+</div>
+
+<!-- DEMO / WATCH IT WORK -->
+<section class="demo" id="demo">
+  <div class="section-head reveal">
+    <span class="kicker">Live, on this page</span>
+    <h2>Watch it think<br>in <em>real time.</em></h2>
+    <p class="section-sub">The pill above is not a video. It is the exact visualizer that ships in the app, drawing your voice as ribbons and streaming words to your cursor about a second behind you.</p>
+  </div>
+  <div class="demo-rows">
+    <div class="demo-row reveal"><span class="drk">01</span><div><h3>Zero round-trip</h3><p>Nothing is sent anywhere, so there is no network delay to wait on. The only latency is your GPU, and it is fast.</p></div></div>
+    <div class="demo-row reveal"><span class="drk">02</span><div><h3>Streaming, not batch</h3><p>Words are committed as soon as two passes agree on them, so text lands while you are still talking.</p></div></div>
+    <div class="demo-row reveal"><span class="drk">03</span><div><h3>It reads your tone</h3><p>Raise your voice on a word and Svara types it in caps. Punctuation and filler cleanup happen automatically.</p></div></div>
+  </div>
 </section>
 
-<!-- HOW IT WORKS -->
+<!-- VISUALIZERS -->
+<section class="viz" id="visualizers">
+  <div class="section-head reveal">
+    <span class="kicker">Signature</span>
+    <h2>Eight ways to<br>watch your <em>voice.</em></h2>
+    <p class="section-sub">Every one of these is live and running right now. Pick a favorite in the app, or let it surprise you.</p>
+  </div>
+  <div class="viz-grid" id="vizGrid"></div>
+</section>
+
+<!-- THEMES -->
+<section class="themes" id="themes">
+  <div class="section-head reveal">
+    <span class="kicker">Make it yours</span>
+    <h2>Recolor everything<br>in <em>one tap.</em></h2>
+    <p class="section-sub">Tap a theme. The pill, the page accent, and the ribbons all shift together, exactly like the tray menu on your desktop.</p>
+  </div>
+  <div class="theme-grid" id="themeGrid"></div>
+</section>
+
+<!-- HOW -->
 <section class="how" id="how">
   <div class="section-head reveal">
-    <h2>Three moves. That is the whole app.</h2>
+    <span class="kicker">The whole app</span>
+    <h2>Three moves.<br>That is <em>it.</em></h2>
   </div>
   <ol class="steps">
-    <li class="step reveal">
-      <span class="step-key"><kbd>Right Alt</kbd><span class="x2">x2</span></span>
-      <h3>Double-tap to start</h3>
-      <p>The pill slides up and Svara starts listening. No window to find, no button to hunt for.</p>
-    </li>
-    <li class="step reveal">
-      <span class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v10M12 13c-2.2 0-4-1.8-4-4V7a4 4 0 0 1 8 0v2c0 2.2-1.8 4-4 4Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      </span>
-      <h3>Speak naturally</h3>
-      <p>Words stream in as you talk and get cleaned up on the fly. Raise your voice and Svara types it IN CAPS.</p>
-    </li>
-    <li class="step reveal">
-      <span class="step-icon">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h11M4 12h9M4 17h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M17.5 15.5l2 2 3-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </span>
-      <h3>Tap to finish</h3>
-      <p>Text lands right at your cursor, in whatever app you are using. Slack, VS Code, your browser, a terminal.</p>
-    </li>
+    <li class="step reveal"><span class="step-n">1</span><div class="step-key"><kbd>Right Alt</kbd><span class="x2">x2</span></div><h3>Double-tap to start</h3><p>The pill slides up and Svara starts listening. No window to find, no button to hunt for.</p></li>
+    <li class="step reveal"><span class="step-n">2</span><span class="step-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v10M12 13c-2.2 0-4-1.8-4-4V7a4 4 0 0 1 8 0v2c0 2.2-1.8 4-4 4Z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span><h3>Speak naturally</h3><p>Words stream in as you talk and get cleaned up on the fly. Pause whenever, it waits for you.</p></li>
+    <li class="step reveal"><span class="step-n">3</span><span class="step-icon"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7h11M4 12h9M4 17h13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M17.5 15.5l2 2 3-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span><h3>Tap to finish</h3><p>Text lands right at your cursor, in whatever app you are using. Slack, VS Code, your browser, a terminal.</p></li>
   </ol>
 </section>
 
 <!-- FEATURES BENTO -->
 <section class="features" id="features">
   <div class="section-head reveal">
-    <h2>Built to disappear into your workflow.</h2>
-    <p class="section-sub">Everything runs on your device. No account, no cloud, no telemetry reading your voice.</p>
+    <span class="kicker">Engineering</span>
+    <h2>Built to <em>vanish</em><br>into your workflow.</h2>
   </div>
-
   <div class="bento">
-    <article class="cell cell-lead reveal">
-      <div class="cell-visual">
-        <div class="mini-pill">
-          <span class="mini-dot"></span>
-          <canvas id="miniWave" width="300" height="72"></canvas>
-        </div>
-      </div>
-      <div class="cell-body">
-        <h3>Private by architecture</h3>
-        <p>Your audio is captured, transcribed, and discarded on your own machine. It physically cannot reach a server, because there is no server. Works on a plane, in a vault, offline.</p>
-      </div>
+    <article class="cell cell-lead spotlight reveal">
+      <div class="cell-visual"><div class="mini-pill"><span class="mini-dot"></span><canvas id="miniWave" width="320" height="72"></canvas></div></div>
+      <div class="cell-body"><h3>Private by architecture</h3><p>Your audio is captured, transcribed, and discarded on your own machine. It physically cannot reach a server, because there is no server. Works on a plane, in a vault, offline.</p></div>
     </article>
-
-    <article class="cell cell-accent reveal">
-      <h3>GPU-fast streaming</h3>
-      <p>Powered by faster-whisper running <span class="mono">large-v3-turbo</span> on CTranslate2. Words appear as you speak, roughly a second behind your voice.</p>
-    </article>
-
-    <article class="cell reveal">
-      <h3>Works in every app</h3>
-      <p>System-wide text injection through the Win32 API drops text at your cursor anywhere you can type.</p>
-    </article>
-
-    <article class="cell cell-wide reveal">
-      <div class="cell-body">
-        <h3>A UI you will actually enjoy</h3>
-        <p>Twelve themes, eight sound visualizers, ten backgrounds. Drag it anywhere, dock it, or click for a little surprise. It dodges your cursor so it never sits on your text.</p>
-      </div>
+    <article class="cell cell-accent spotlight reveal"><h3>GPU-fast streaming</h3><p>faster-whisper running <span class="mono">large-v3-turbo</span> on CTranslate2. Words appear about a second behind your voice.</p></article>
+    <article class="cell spotlight reveal"><h3>Works in every app</h3><p>System-wide text injection through the Win32 API drops text at your cursor anywhere you can type.</p></article>
+    <article class="cell cell-wide spotlight reveal">
+      <div class="cell-body"><h3>A UI you will actually enjoy</h3><p>Drag it anywhere, dock it, or click for a little surprise. It dodges your cursor so it never sits on your text.</p></div>
       <div class="looks-strip" id="looksStrip" aria-hidden="true"></div>
     </article>
-
-    <article class="cell reveal">
-      <h3>Always on, out of the way</h3>
-      <p>Lives in the tray, restarts itself if it ever hiccups, and uses no global keyboard hook. It watches one key and nothing else.</p>
-    </article>
+    <article class="cell spotlight reveal"><h3>Always on, out of the way</h3><p>Lives in the tray, restarts itself if it ever hiccups, and uses no global keyboard hook. It watches one key and nothing else.</p></article>
   </div>
-</section>
-
-<!-- LOOKS / THEMES -->
-<section class="looks" id="looks">
-  <div class="section-head reveal">
-    <h2>Make it yours in a tap.</h2>
-    <p class="section-sub">The pill up top is live. Try a look and watch it change, the same way it does on your desktop.</p>
-  </div>
-  <div class="looks-grid" id="looksGrid"></div>
 </section>
 
 <!-- COMPARISON -->
 <section class="compare" id="compare">
   <div class="section-head reveal">
-    <h2>Local, not just labeled private.</h2>
+    <span class="kicker">The difference</span>
+    <h2>Private by <em>design,</em><br>not by promise.</h2>
     <p class="section-sub">Most dictation tools ship your voice to a company's servers and bill you monthly. Svara does not.</p>
   </div>
   <div class="compare-table reveal">
-    <div class="ct-row ct-head">
-      <span></span><span class="ct-svara">Svara</span><span class="ct-other">Typical cloud dictation</span>
-    </div>
-    <div class="ct-row">
-      <span class="ct-key">Where your audio goes</span>
-      <span class="ct-yes">Your GPU</span>
-      <span class="ct-no">A company's servers</span>
-    </div>
-    <div class="ct-row">
-      <span class="ct-key">Works offline</span>
-      <span class="ct-yes">Yes</span>
-      <span class="ct-no">No</span>
-    </div>
-    <div class="ct-row">
-      <span class="ct-key">Price</span>
-      <span class="ct-yes">Free</span>
-      <span class="ct-no">Subscription</span>
-    </div>
-    <div class="ct-row">
-      <span class="ct-key">Source code</span>
-      <span class="ct-yes">Open, auditable</span>
-      <span class="ct-no">Closed</span>
-    </div>
-    <div class="ct-row">
-      <span class="ct-key">Latency comes from</span>
-      <span class="ct-yes">Local compute</span>
-      <span class="ct-no">A network round-trip</span>
-    </div>
+    <div class="ct-row ct-head"><span></span><span class="ct-svara">Svara</span><span class="ct-other">Typical cloud dictation</span></div>
+    <div class="ct-row"><span class="ct-key">Where your audio goes</span><span class="ct-yes">Your GPU</span><span class="ct-no">A company's servers</span></div>
+    <div class="ct-row"><span class="ct-key">Works offline</span><span class="ct-yes">Yes</span><span class="ct-no">No</span></div>
+    <div class="ct-row"><span class="ct-key">Price</span><span class="ct-yes">Free</span><span class="ct-no">Subscription</span></div>
+    <div class="ct-row"><span class="ct-key">Source code</span><span class="ct-yes">Open, auditable</span><span class="ct-no">Closed</span></div>
+    <div class="ct-row"><span class="ct-key">Latency comes from</span><span class="ct-yes">Local compute</span><span class="ct-no">A network round-trip</span></div>
   </div>
 </section>
 
 <!-- TECH -->
 <section class="tech" id="tech">
   <div class="section-head reveal">
-    <h2>For the people who read the source.</h2>
+    <span class="kicker">Under the hood</span>
+    <h2>For the people<br>who read the <em>source.</em></h2>
   </div>
   <div class="tech-grid">
     <div class="tech-item reveal"><span class="mono tech-tag">stt</span><p>faster-whisper on CTranslate2, <span class="mono">large-v3-turbo</span> at int8, warmed up at launch for an instant first word.</p></div>
@@ -219,18 +189,19 @@
   </div>
 </section>
 
-<!-- DOWNLOAD / CTA -->
+<!-- DOWNLOAD -->
 <section class="download" id="download">
   <div class="dl-inner reveal">
-    <h2>Give your voice a place to land.</h2>
+    <div class="dl-glow" aria-hidden="true"></div>
+    <h2>Give your voice<br>somewhere to <em>land.</em></h2>
     <p>Windows 10 and 11, with an NVIDIA GPU for the fast path. No GPU still works, just slower on the CPU.</p>
     <div class="dl-actions">
-      <a class="btn btn-solid btn-lg" href="https://github.com/vasu-devs/Svara/releases" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" class="btn-ic"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <a class="btn btn-solid btn-lg magnetic" href="https://github.com/vasu-devs/Svara/releases" target="_blank" rel="noopener">
+        <svg viewBox="0 0 24 24" class="btn-ic" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 19h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Download for Windows
       </a>
       <a class="btn btn-ghost btn-lg" href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">
-        <svg viewBox="0 0 24 24" fill="none" class="btn-ic"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" fill="currentColor"/></svg>
+        <svg viewBox="0 0 24 24" class="btn-ic" fill="none"><path d="M12 2a10 10 0 0 0-3.16 19.49c.5.09.68-.22.68-.48v-1.7c-2.78.6-3.37-1.34-3.37-1.34-.45-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.9 1.53 2.36 1.09 2.94.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.94 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.65 0 0 .84-.27 2.75 1.02a9.6 9.6 0 0 1 5 0c1.91-1.29 2.75-1.02 2.75-1.02.55 1.38.2 2.4.1 2.65.64.7 1.03 1.59 1.03 2.68 0 3.84-2.34 4.68-4.57 4.93.36.31.68.92.68 1.85v2.74c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" fill="currentColor"/></svg>
         Star on GitHub
       </a>
     </div>
@@ -241,22 +212,11 @@
 </main>
 
 <footer class="footer">
-  <div class="foot-brand">
-    <svg class="brand-mark" viewBox="0 0 64 64" aria-hidden="true">
-      <path d="M12 32 C20 12, 28 12, 32 32 S44 52, 52 32" stroke="url(#footg)" stroke-width="5" stroke-linecap="round" fill="none"/>
-      <defs><linearGradient id="footg" x1="8" y1="20" x2="56" y2="44" gradientUnits="userSpaceOnUse">
-        <stop stop-color="#ff5fa2"/><stop offset="0.5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#22d3ee"/>
-      </linearGradient></defs>
-    </svg>
-    <span>Svara</span>
+  <div class="foot-top">
+    <div class="foot-brand"><span class="brand-orb sm"><canvas id="footWave" width="52" height="26"></canvas></span><span>Svara</span></div>
+    <div class="foot-links"><a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a><a href="#download">Download</a></div>
   </div>
-  <p class="foot-tag">Private voice dictation that runs on your own machine.</p>
-  <div class="foot-links">
-    <a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a>
-    <a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a>
-    <a href="#download">Download</a>
-  </div>
-  <p class="foot-fine">Open source. Runs on faster-whisper. Your voice stays with you.</p>
+  <p class="foot-fine">Private voice dictation that runs on your own machine. Open source, built on faster-whisper. Your voice stays with you.</p>
 </footer>
 
 <script src="app.js"></script>
