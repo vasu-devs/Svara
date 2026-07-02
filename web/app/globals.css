@@ -176,6 +176,8 @@ html{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
 .footer{max-width:var(--maxw);margin:0 auto;padding:clamp(4rem,9vh,7rem) var(--pad) 1.8rem;border-top:1px solid var(--hair)}
 .foot-top{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr;gap:clamp(1.6rem,3vw,3rem);align-items:start}
 .foot-brand{display:flex;flex-direction:column;gap:1.2rem;max-width:34ch}
+.foot-themes{display:flex;align-items:center;gap:.6rem;margin-top:.1rem}
+.foot-themes .lbl{font-family:var(--font-mono),monospace;font-size:.66rem;color:var(--text-3);letter-spacing:.14em;text-transform:uppercase}
 .foot-brandrow{display:flex;align-items:center;gap:.55rem;font-weight:800;font-size:1.25rem;letter-spacing:-.03em}
 .foot-brandrow .logo-mark{width:30px;height:30px}
 .foot-tag{color:var(--text-2);font-size:.98rem;line-height:1.55}
@@ -183,7 +185,7 @@ html{scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.16) transparent}
 .foot-col h4{font-family:var(--font-mono),monospace;font-size:.68rem;text-transform:uppercase;letter-spacing:.18em;color:var(--text-3);font-weight:500;margin:.3rem 0 .2rem}
 .foot-col a{color:var(--text-2);font-size:.94rem;transition:color .25s var(--e),transform .25s var(--e);width:max-content}
 .foot-col a:hover{color:var(--text);transform:translateX(3px)}
-.foot-word{font-weight:800;letter-spacing:-.07em;line-height:.82;font-size:clamp(4.5rem,23vw,21rem);color:rgba(255,255,255,.045);-webkit-text-stroke:1px rgba(255,255,255,.14);text-align:center;user-select:none;margin:clamp(2.4rem,6vh,5rem) 0 clamp(1.6rem,4vh,3rem);overflow:hidden}
+.foot-word{font-weight:800;letter-spacing:-.07em;line-height:.82;font-size:clamp(4.5rem,23vw,21rem);color:rgba(255,255,255,.055);-webkit-text-stroke:1.2px rgba(255,255,255,.18);text-align:center;user-select:none;margin:clamp(2.2rem,5vh,4rem) 0 clamp(1.4rem,3.5vh,2.6rem);overflow:hidden}
 .foot-bottom{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;padding-top:1.6rem;border-top:1px solid var(--hair);font-family:var(--font-mono),monospace;font-size:.72rem;color:var(--text-3);letter-spacing:.02em}
 .foot-bottom .b{color:var(--accent);transition:color .6s}
 

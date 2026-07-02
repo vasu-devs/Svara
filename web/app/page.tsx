@@ -103,6 +103,10 @@ export default function Page() {
             <div className="foot-brandrow"><LogoMark /><span>Svara</span></div>
             <p className="foot-tag">Private voice dictation that runs on your own machine. Speak, and it is written, the instant you say it.</p>
             <Magnetic><a className="btn group btn-solid" href="#get"><span>Download for Windows</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
+            <div className="foot-themes">
+              <span className="lbl">Theme</span>
+              <div className="swatches">{THEME_KEYS.map((k) => <button key={k} className={`swatch ${theme === k ? "on" : ""}`} aria-label={THEMES[k].name} style={{ background: THEMES[k].accent }} onClick={() => morph(k)} />)}</div>
+            </div>
           </div>
           <div className="foot-col"><h4>Product</h4><a href="#get">Download</a><a href="#meters">Meters</a><a href="#themes">Themes</a><a href="#how">How it works</a></div>
           <div className="foot-col"><h4>Source</h4><a href="https://github.com/vasu-devs/Svara" target="_blank" rel="noopener">GitHub</a><a href="https://github.com/vasu-devs/Svara/issues" target="_blank" rel="noopener">Issues</a><a href="https://github.com/vasu-devs/Svara/releases" target="_blank" rel="noopener">Releases</a></div>
@@ -218,9 +222,10 @@ function Themes({ theme, onTheme }: { theme: string; onTheme: (k: string) => voi
 const LogoMark = () => (
   <span className="logo-mark">
     <svg viewBox="0 0 32 32" fill="none" width="100%" height="100%">
-      <rect x="1.25" y="1.25" width="29.5" height="29.5" rx="9" fill="#0d0d10" stroke="rgba(255,255,255,0.13)" />
-      <path d="M6 16 q4 -6.6 8 0 t8 0 t8 0" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" />
-      <path d="M6 16 q4 6.6 8 0 t8 0 t8 0" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.34" />
+      <rect x="1" y="1" width="30" height="30" rx="9.5" fill="currentColor" />
+      <rect x="1.6" y="1.6" width="28.8" height="28.8" rx="8.9" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="1.1" />
+      <path d="M6 16 q5 -7.2 10 0 t10 0" stroke="#fff" strokeWidth="2.7" strokeLinecap="round" />
+      <path d="M6 16 q5 4.6 10 0 t10 0" stroke="rgba(255,255,255,0.5)" strokeWidth="1.7" strokeLinecap="round" />
     </svg>
   </span>
 );
