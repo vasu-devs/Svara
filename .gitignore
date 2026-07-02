@@ -19,3 +19,6 @@ Thumbs.db
 
 # GitHub Pages is built from web/ by the deploy workflow, not committed
 docs/
+
+# Release artifacts (uploaded to GitHub Releases, not committed)
+*.zip
