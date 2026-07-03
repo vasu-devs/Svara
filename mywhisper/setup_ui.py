@@ -1,9 +1,9 @@
-"""First-run setup: welcome, a quick how-to, and a model chooser.
+"""First-run setup: welcome → model + auto-GPU → animated download → try-it test.
 
-Auto-detects an NVIDIA GPU. If one is present, it offers every model and, on
-first launch, downloads the CUDA runtime once (~1.3 GB) so the app runs on the
-GPU. Without a GPU it offers only CPU-sized models. Primary UI is CustomTkinter
-(on-brand, animated logo); plain Tk is an automatic fallback.
+Auto-detects an NVIDIA GPU. If present, offers every model and downloads the
+CUDA runtime once (~1.3 GB, animated progress) so the app runs on the GPU.
+After the model loads, it shows a live "try it" screen with a textbox so the
+user can double-tap/hold Right Alt and confirm dictation works before finishing.
 
 run_setup() returns (model_name, transcriber) — a ready Transcriber — or
 (None, None) if the window was closed.
@@ -20,7 +20,6 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# (value, title, subtitle)
 MODELS = [
     ("base", "Base", "Fast, good accuracy · ~150 MB"),
     ("small", "Small", "Better accuracy, a little slower · ~480 MB"),
@@ -28,7 +27,7 @@ MODELS = [
     ("tiny", "Tiny", "Fastest, roughest · ~75 MB"),
     ("large-v3-turbo", "Large v3 Turbo", "Best accuracy · ~1.5 GB"),
 ]
-_CPU_OK = {"tiny", "base", "small"}   # what a CPU can transcribe in real time
+_CPU_OK = {"tiny", "base", "small"}
 
 BG = "#0a0a0c"
 CARD = "#17171c"
@@ -51,7 +50,6 @@ def _asset(name: str) -> str | None:
 
 
 def _apply_config(cfg_path, model: str, device: str, compute: str) -> None:
-    """Write model / device / compute_type into config.yaml, keeping comments."""
     try:
         p = Path(cfg_path)
         t = p.read_text(encoding="utf-8")
@@ -64,8 +62,6 @@ def _apply_config(cfg_path, model: str, device: str, compute: str) -> None:
 
 
 def _make_wave_frames(w: int, h: int, n: int):
-    """Seamless loop of the flowing Svara strings as PIL frames (cycled on a
-    label — stable inside ctk, unlike a live canvas)."""
     from PIL import Image, ImageDraw
     cols = [(255, 95, 162), (139, 92, 246), (34, 211, 238)]
     mid = h / 2
@@ -89,22 +85,17 @@ def _make_wave_frames(w: int, h: int, n: int):
 
 
 def _plan(cfg):
-    """Return (use_gpu, models_list, default_model)."""
     from . import cuda_setup as cuda
     use_gpu = cuda.gpu_present()
     mlist = MODELS if use_gpu else [m for m in MODELS if m[0] in _CPU_OK]
     valid = [m[0] for m in mlist]
-    if use_gpu:
-        default = "large-v3-turbo"
-    else:
-        default = (cfg.get("model") or {}).get("name", "base")
+    default = "large-v3-turbo" if use_gpu else (cfg.get("model") or {}).get("name", "base")
     if default not in valid:
         default = valid[0]
     return use_gpu, mlist, default
 
 
 def _load_model(cfg, cfg_path, model, use_gpu, dl):
-    """Runs in a worker thread. dl is a shared dict for progress reporting."""
     from . import cuda_setup as cuda
     if use_gpu:
         if not cuda.cuda_available():
@@ -112,7 +103,7 @@ def _load_model(cfg, cfg_path, model, use_gpu, dl):
             ok = cuda.download_cuda(progress=lambda d, t: dl.update(done=d, total=t))
             if not ok:
                 raise RuntimeError("couldn't download GPU support (check your internet)")
-        cuda.setup()  # register the (now-present) CUDA DLLs
+        cuda.setup()
         dev, comp = "cuda", "int8_float16"
     else:
         dev, comp = "cpu", "int8"
@@ -148,7 +139,7 @@ def _run_setup_ctk(cfg, cfg_path):
         root.attributes("-topmost", True)
         root.lift()
         root.after(120, root.focus_force)
-        root.after(800, lambda: root.attributes("-topmost", False))
+        root.after(900, lambda: root.attributes("-topmost", False))
     except Exception:  # noqa: BLE001
         pass
     _ic = _asset("icon.ico")
@@ -159,7 +150,143 @@ def _run_setup_ctk(cfg, cfg_path):
         except Exception:  # noqa: BLE001
             pass
 
-    # bottom action bar (always visible)
+    def _strings_banner(parent, wpx, hpx=56, delay=250):
+        """An animated flowing-strings label (pre-rendered frames, cycled)."""
+        try:
+            frames = [ctk.CTkImage(f, size=(wpx, hpx)) for f in _make_wave_frames(wpx, hpx, 26)]
+        except Exception:  # noqa: BLE001
+            return None
+        lbl = ctk.CTkLabel(parent, image=frames[0], text="")
+        lbl._frames = frames
+        idx = [0]
+
+        def anim():
+            if not lbl.winfo_exists():
+                return
+            idx[0] = (idx[0] + 1) % len(frames)
+            lbl.configure(image=frames[idx[0]])
+            root.after(60, anim)
+
+        root.after(delay, anim)
+        return lbl
+
+    # ------------------------------------------------------------------ #
+    #  "Try it now" screen — shown once the model is loaded              #
+    # ------------------------------------------------------------------ #
+    def _show_test():
+        model = result["model"] or choice["value"]
+        transcriber = result["transcriber"]
+        for w in root.winfo_children():
+            w.destroy()
+
+        hk_name = cfg["recording"].get("hotkey", "right alt")
+
+        head = ctk.CTkFrame(root, fg_color="transparent")
+        head.pack(side="top", fill="x", padx=26, pady=(20, 0))
+        b = _strings_banner(head, W - 52, 50, delay=120)
+        if b:
+            b.pack(fill="x", pady=(0, 8))
+        ctk.CTkLabel(head, text="You're all set ✓", text_color=FG,
+                     font=ctk.CTkFont(size=26, weight="bold"), anchor="w").pack(fill="x")
+        ctk.CTkLabel(head, text=f"Double-tap  or  hold  {hk_name}  and speak — try it right here.",
+                     text_color=SUB, font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(2, 2))
+        live = ctk.CTkLabel(head, text="", text_color=ACCENT,
+                            font=ctk.CTkFont(size=12, weight="bold"), anchor="w")
+        live.pack(fill="x", pady=(4, 8))
+
+        box = ctk.CTkTextbox(root, fg_color=CARD, border_color="#26262d", border_width=1,
+                             corner_radius=14, text_color=FG, font=ctk.CTkFont(size=15),
+                             wrap="word")
+        box.pack(side="top", fill="both", expand=True, padx=26, pady=(0, 12))
+
+        action = ctk.CTkFrame(root, fg_color="transparent")
+        action.pack(side="bottom", fill="x", padx=26, pady=(0, 20))
+        finish = ctk.CTkButton(action, text="Finish  →", height=46, corner_radius=12,
+                               fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#06181d",
+                               font=ctk.CTkFont(size=15, weight="bold"))
+        finish.pack(fill="x")
+
+        # --- scoped mini dictation loop (record → transcribe → type in box) ---
+        state = {"rec": None, "hk": None}
+        try:
+            from .audio import Recorder
+            from .hotkey import create_listener
+            rec = Recorder(cfg["audio"], cfg["recording"])
+            rec.open()
+            state["rec"] = rec
+
+            def _set_live(txt):
+                if live.winfo_exists():
+                    live.configure(text=txt)
+
+            def on_start():
+                try:
+                    rec.start()
+                    root.after(0, lambda: _set_live("●  Listening…"))
+                except Exception:  # noqa: BLE001
+                    pass
+
+            def _do(audio):
+                try:
+                    segs = transcriber.transcribe(audio)
+                    text = " ".join(t for t, _, _ in segs).strip()
+                except Exception:  # noqa: BLE001
+                    text = ""
+                root.after(0, lambda: _set_live(""))
+                if text:
+                    root.after(0, lambda: (box.insert("end", text + " "), box.see("end"),
+                                           box.focus_set()))
+
+            def on_commit():
+                try:
+                    audio = rec.stop()
+                except Exception:  # noqa: BLE001
+                    audio = None
+                root.after(0, lambda: _set_live("…transcribing"))
+                if audio is not None:
+                    threading.Thread(target=_do, args=(audio,), daemon=True).start()
+                else:
+                    root.after(0, lambda: _set_live(""))
+
+            def on_cancel():
+                try:
+                    rec.stop(keep_tail=False)
+                except Exception:  # noqa: BLE001
+                    pass
+                root.after(0, lambda: _set_live(""))
+
+            hk = create_listener(cfg["recording"], on_start=on_start, on_commit=on_commit,
+                                 on_cancel=on_cancel, on_lock=lambda: None,
+                                 is_recording=lambda: rec.recording)
+            hk.start()
+            state["hk"] = hk
+            box.focus_set()
+        except Exception as e:  # noqa: BLE001 — mic/hotkey unavailable: still let them finish
+            log.debug("test loop unavailable", exc_info=True)
+            live.configure(text=f"(couldn't start the mic here — you can still finish: {e})",
+                           text_color=SUB)
+
+        def _finish():
+            try:
+                if state["hk"]:
+                    state["hk"].stop()
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                if state["rec"]:
+                    state["rec"].close()
+            except Exception:  # noqa: BLE001
+                pass
+            result["model"] = model
+            root.destroy()
+
+        finish.configure(command=_finish)
+        root.bind("<Return>", lambda e: _finish())
+        root.protocol("WM_DELETE_WINDOW", _finish)
+
+    # ------------------------------------------------------------------ #
+    #  Setup screen (pick a model)                                        #
+    # ------------------------------------------------------------------ #
     action = ctk.CTkFrame(root, fg_color="transparent")
     action.pack(side="bottom", fill="x", padx=26, pady=(6, 20))
     btn = ctk.CTkButton(action, text="Start Svara", height=48, corner_radius=12,
@@ -167,48 +294,31 @@ def _run_setup_ctk(cfg, cfg_path):
                         font=ctk.CTkFont(size=16, weight="bold"))
     btn.pack(fill="x")
     prog = ctk.CTkProgressBar(action, mode="indeterminate", progress_color=ACCENT,
-                              fg_color=CARD, height=6, corner_radius=6)
+                              fg_color=CARD, height=8, corner_radius=6)
     status = ctk.CTkLabel(action, text=(
         "Runs on your NVIDIA GPU. First launch downloads GPU support (~1.3 GB) once."
         if use_gpu else "No NVIDIA GPU found — runs on the CPU. (Large models are GPU-only.)"),
         text_color=SUB, font=ctk.CTkFont(size=12), wraplength=W - 60, justify="left", anchor="w")
     status.pack(fill="x", pady=(10, 0))
 
-    # header: animated strings + welcome
     head = ctk.CTkFrame(root, fg_color="transparent")
     head.pack(side="top", fill="x", padx=26, pady=(20, 0))
-    _bw = W - 52
-    try:
-        _frames = [ctk.CTkImage(f, size=(_bw, 56)) for f in _make_wave_frames(_bw, 56, 26)]
-    except Exception:  # noqa: BLE001
-        _frames = []
-    if _frames:
-        wlbl = ctk.CTkLabel(head, image=_frames[0], text="")
-        wlbl._frames = _frames
-        wlbl.pack(fill="x", pady=(0, 8))
-        _fi = [0]
-
-        def _anim():
-            if not wlbl.winfo_exists():
-                return
-            _fi[0] = (_fi[0] + 1) % len(_frames)
-            wlbl.configure(image=_frames[_fi[0]])
-            root.after(60, _anim)
-
-        root.after(250, _anim)
+    b = _strings_banner(head, W - 52, 56)
+    if b:
+        b.pack(fill="x", pady=(0, 8))
     ctk.CTkLabel(head, text="Welcome to Svara", text_color=FG,
                  font=ctk.CTkFont(size=26, weight="bold"), anchor="w").pack(fill="x")
     ctk.CTkLabel(head, text="Private voice dictation that runs on your own machine.",
                  text_color=SUB, font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(2, 14))
     howf = ctk.CTkFrame(head, fg_color=CARD, corner_radius=14)
     howf.pack(fill="x")
-    for a, b in (("1   Double-tap", "Right Alt  to start listening"),
-                 ("2   Speak", "your words type at the cursor"),
-                 ("3   Tap", "Right Alt  to finish  (or hold to push-to-talk)")):
+    for a, bb in (("1   Double-tap", "Right Alt  to start listening"),
+                  ("2   Speak", "your words type at the cursor"),
+                  ("3   Tap", "Right Alt  to finish  (or hold to push-to-talk)")):
         row = ctk.CTkFrame(howf, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(row, text=a, text_color=ACCENT, font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-        ctk.CTkLabel(row, text="  " + b, text_color="#dcdce0", font=ctk.CTkFont(size=13)).pack(side="left")
+        ctk.CTkLabel(row, text="  " + bb, text_color="#dcdce0", font=ctk.CTkFont(size=13)).pack(side="left")
     ctk.CTkLabel(head, text="CHOOSE A MODEL", text_color=SUB,
                  font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", pady=(16, 2))
 
@@ -241,7 +351,7 @@ def _run_setup_ctk(cfg, cfg_path):
 
     def _poll():
         if result["transcriber"] is not None:
-            root.destroy()
+            _show_test()
             return
         if result["error"] is not None:
             try:
@@ -257,10 +367,17 @@ def _run_setup_ctk(cfg, cfg_path):
                 prog.configure(mode="determinate"); prog.set(frac)
             except Exception:  # noqa: BLE001
                 pass
-            status.configure(text=f"Downloading GPU support…  {dl['done'] >> 20} / {dl['total'] >> 20} MB  ({int(frac * 100)}%)")
+            status.configure(
+                text=f"⬇  Downloading GPU support…   {dl['done'] >> 20} / {dl['total'] >> 20} MB   ·   {int(frac * 100)}%",
+                text_color=ACCENT)
         elif dl["phase"] == "model":
-            status.configure(text=f"Loading the {choice['value']} model…")
-        root.after(200, _poll)
+            try:
+                prog.configure(mode="indeterminate")
+                prog.start()
+            except Exception:  # noqa: BLE001
+                pass
+            status.configure(text=f"✓ GPU ready — loading the {choice['value']} model…", text_color=SUB)
+        root.after(120, _poll)
 
     def _start():
         model = choice["value"]
@@ -277,7 +394,7 @@ def _run_setup_ctk(cfg, cfg_path):
                 result["error"] = str(e)
 
         threading.Thread(target=work, daemon=True).start()
-        root.after(150, _poll)
+        root.after(120, _poll)
 
     btn.configure(command=_start)
     root.bind("<Return>", lambda e: _start())
@@ -287,7 +404,7 @@ def _run_setup_ctk(cfg, cfg_path):
 
 
 # --------------------------------------------------------------------------- #
-#  Plain Tk fallback                                                           #
+#  Plain Tk fallback (loads model, then closes — no live test)                #
 # --------------------------------------------------------------------------- #
 
 def _run_setup_tk(cfg, cfg_path):
