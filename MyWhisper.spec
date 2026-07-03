@@ -30,8 +30,9 @@ if not CPU_ONLY:
         except Exception:
             pass
 
-# Ship a default config next to the exe (users can edit it).
-datas += [("config.yaml", ".")]
+# Ship a default config next to the exe (users can edit it) + the app icon.
+datas += [("config.yaml", "."), ("assets/icon.ico", "assets"),
+          ("assets/icon.png", "assets")]
 
 hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
                   "mywhisper.setup_ui", "tkinter", "tkinter.ttk", "customtkinter"]

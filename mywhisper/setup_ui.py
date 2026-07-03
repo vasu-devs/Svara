@@ -7,11 +7,27 @@ model — or (None, None) if the window was closed.
 """
 
 import logging
+import math
+import os
 import re
+import sys
 import threading
+import tkinter as tk
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+
+def _asset(name: str) -> str | None:
+    """Path to a bundled asset (frozen _MEIPASS or the source tree)."""
+    roots = [getattr(sys, "_MEIPASS", None),
+             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]
+    for base in roots:
+        if base:
+            p = os.path.join(base, "assets", name)
+            if os.path.exists(p):
+                return p
+    return None
 
 # (value, title, subtitle)
 MODELS = [
@@ -67,6 +83,13 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
         root.after(800, lambda: root.attributes("-topmost", False))
     except Exception:  # noqa: BLE001
         pass
+    _ic = _asset("icon.ico")
+    if _ic:
+        try:
+            root.iconbitmap(_ic)
+            root.after(300, lambda: root.iconbitmap(_ic))  # CTk can reset it late
+        except Exception:  # noqa: BLE001
+            pass
 
     # ---- bottom action bar (packed first → always visible) ----
     action = ctk.CTkFrame(root, fg_color="transparent")
@@ -82,13 +105,25 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
                           justify="left", anchor="w")
     status.pack(fill="x", pady=(10, 0))
 
-    # ---- header ----
+    # ---- header (Svara logo + wordmark) ----
     head = ctk.CTkFrame(root, fg_color="transparent")
-    head.pack(side="top", fill="x", padx=26, pady=(24, 0))
-    ctk.CTkLabel(head, text="Welcome to Svara", text_color=FG,
-                 font=ctk.CTkFont(size=26, weight="bold"), anchor="w").pack(fill="x")
+    head.pack(side="top", fill="x", padx=26, pady=(22, 0))
+    brand = ctk.CTkFrame(head, fg_color="transparent")
+    brand.pack(fill="x")
+    _logo = _asset("icon.png")
+    if _logo:
+        try:
+            from PIL import Image
+            _img = ctk.CTkImage(Image.open(_logo), size=(48, 48))
+            _lbl = ctk.CTkLabel(brand, image=_img, text="")
+            _lbl._img_ref = _img  # keep a reference
+            _lbl.pack(side="left", padx=(0, 12))
+        except Exception:  # noqa: BLE001
+            pass
+    ctk.CTkLabel(brand, text="Svara", text_color=FG,
+                 font=ctk.CTkFont(size=30, weight="bold")).pack(side="left")
     ctk.CTkLabel(head, text="Private voice dictation that runs on your own machine.",
-                 text_color=SUB, font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(2, 14))
+                 text_color=SUB, font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(12, 14))
     howf = ctk.CTkFrame(head, fg_color=CARD, corner_radius=14)
     howf.pack(fill="x")
     for a, b in (("1   Double-tap", "Right Alt  to start listening"),
@@ -104,7 +139,8 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
                  font=ctk.CTkFont(size=11, weight="bold"), anchor="w").pack(fill="x", pady=(16, 2))
 
     # ---- scrollable model list ----
-    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent")
+    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent",
+                                    scrollbar_button_color="#2a2a30")
     scroll.pack(side="top", fill="both", expand=True, padx=20)
 
     valid = [m[0] for m in MODELS]
