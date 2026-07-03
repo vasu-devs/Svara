@@ -29,6 +29,31 @@ def _asset(name: str) -> str | None:
                 return p
     return None
 
+
+def _make_wave_frames(w: int, h: int, n: int):
+    """Pre-render a seamless loop of the flowing Svara strings as PIL frames.
+    Cycled on a label (not a live canvas) so it stays stable inside ctk."""
+    from PIL import Image, ImageDraw
+    cols = [(255, 95, 162), (139, 92, 246), (34, 211, 238)]  # pink · purple · cyan
+    mid = h / 2
+    frames = []
+    for f in range(n):
+        ph = 2 * math.pi * f / n            # full period → seamless loop
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        for i, c in enumerate(cols):
+            pts = []
+            for x in range(0, w + 4, 4):
+                u = x / max(1, w)
+                env = math.sin(math.pi * u) ** 0.9
+                y = mid + env * (h * 0.30) * math.sin(7 * u + ph + i * 0.9) \
+                    + env * (h * 0.17) * math.sin(11 * u - ph * 0.8 - i * 0.6)
+                pts.append((x, y))
+            d.line(pts, fill=c + (85,), width=6, joint="curve")   # soft glow
+            d.line(pts, fill=c + (255,), width=2, joint="curve")  # bright core
+        frames.append(img)
+    return frames
+
 # (value, title, subtitle)
 MODELS = [
     ("base", "Base", "Recommended · fast, good accuracy · ~150 MB"),
@@ -105,25 +130,32 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
                           justify="left", anchor="w")
     status.pack(fill="x", pady=(10, 0))
 
-    # ---- header (Svara logo + wordmark) ----
+    # ---- header: animated Svara strings + welcome ----
     head = ctk.CTkFrame(root, fg_color="transparent")
-    head.pack(side="top", fill="x", padx=26, pady=(22, 0))
-    brand = ctk.CTkFrame(head, fg_color="transparent")
-    brand.pack(fill="x")
-    _logo = _asset("icon.png")
-    if _logo:
-        try:
-            from PIL import Image
-            _img = ctk.CTkImage(Image.open(_logo), size=(48, 48))
-            _lbl = ctk.CTkLabel(brand, image=_img, text="")
-            _lbl._img_ref = _img  # keep a reference
-            _lbl.pack(side="left", padx=(0, 12))
-        except Exception:  # noqa: BLE001
-            pass
-    ctk.CTkLabel(brand, text="Svara", text_color=FG,
-                 font=ctk.CTkFont(size=30, weight="bold")).pack(side="left")
+    head.pack(side="top", fill="x", padx=26, pady=(20, 0))
+    _bw = W - 52
+    try:
+        _frames = [ctk.CTkImage(f, size=(_bw, 56)) for f in _make_wave_frames(_bw, 56, 26)]
+    except Exception:  # noqa: BLE001
+        _frames = []
+    if _frames:
+        wlbl = ctk.CTkLabel(head, image=_frames[0], text="")
+        wlbl._frames = _frames  # keep refs alive
+        wlbl.pack(fill="x", pady=(0, 8))
+        _fi = [0]
+
+        def _anim():
+            if not wlbl.winfo_exists():
+                return
+            _fi[0] = (_fi[0] + 1) % len(_frames)
+            wlbl.configure(image=_frames[_fi[0]])
+            root.after(60, _anim)
+
+        root.after(250, _anim)
+    ctk.CTkLabel(head, text="Welcome to Svara", text_color=FG,
+                 font=ctk.CTkFont(size=26, weight="bold"), anchor="w").pack(fill="x")
     ctk.CTkLabel(head, text="Private voice dictation that runs on your own machine.",
-                 text_color=SUB, font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(12, 14))
+                 text_color=SUB, font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(2, 14))
     howf = ctk.CTkFrame(head, fg_color=CARD, corner_radius=14)
     howf.pack(fill="x")
     for a, b in (("1   Double-tap", "Right Alt  to start listening"),
