@@ -20,3 +20,6 @@ PyYAML>=6.0
 # System tray icon
 pystray>=0.19.5
 Pillow>=10.0
+
+# Modern first-run setup window (rounded dark UI; falls back to plain Tk)
+customtkinter>=5.2

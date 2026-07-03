@@ -13,7 +13,7 @@ datas, binaries, hiddenimports = [], [], []
 
 # Collect everything (code + data + DLLs) for the tricky packages.
 for pkg in ("faster_whisper", "ctranslate2", "av", "sounddevice",
-            "pystray", "PIL", "comtypes", "yaml", "pynput"):
+            "pystray", "PIL", "comtypes", "yaml", "pynput", "customtkinter"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
@@ -34,7 +34,7 @@ if not CPU_ONLY:
 datas += [("config.yaml", ".")]
 
 hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
-                  "mywhisper.setup_ui", "tkinter", "tkinter.ttk"]
+                  "mywhisper.setup_ui", "tkinter", "tkinter.ttk", "customtkinter"]
 
 a = Analysis(
     ["app_entry.py"],
