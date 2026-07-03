@@ -18,7 +18,7 @@ model:
   stream_language: en         # language used for LIVE partials when language is null/auto
                               #   (auto-detect is unreliable on tiny live buffers)
   beam_size: 2                # final-pass beam: 2 = good, 1 = fastest, 5 = whisper default
-  partial_beam_size: 2        # live-streaming beam: 2 balances speed and accuracy (1=fastest, 5=most accurate)
+  partial_beam_size: 1        # live-streaming beam: 2 balances speed and accuracy (1=fastest, 5=most accurate)
   initial_prompt: null        # vocabulary hint, e.g. "MyWhisper, faster-whisper, CTranslate2"
   download_root: null         # model cache dir (null = HuggingFace default)
 
@@ -72,7 +72,7 @@ streaming:
   mode: live                  # live    = words are TYPED at your cursor in real time as you talk
                               # preview = words only shown inside the pill; typed after you stop
                               # off     = classic batch (transcribe only after you stop)
-  interval_ms: 240            # how often the rolling buffer is re-transcribed (lower = snappier)
+  interval_ms: 320            # how often the rolling buffer is re-transcribed (lower = snappier)
   min_audio_s: 0.4           # wait for this much audio before the first word appears
 
 audio:

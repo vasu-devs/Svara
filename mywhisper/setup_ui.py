@@ -62,6 +62,15 @@ MODELS = [
     ("tiny", "Tiny", "Fastest, roughest · ~75 MB"),
     ("large-v3-turbo", "Large v3 Turbo", "Best accuracy · ~1.5 GB · GPU recommended"),
 ]
+# Big models are impractically slow on a CPU (minutes per utterance), so the
+# CPU build only offers the ones a CPU can actually keep up with in real time.
+_CPU_OK = {"tiny", "base", "small"}
+
+
+def _models_for(cfg: dict):
+    if (cfg.get("model") or {}).get("device") == "cpu":
+        return [m for m in MODELS if m[0] in _CPU_OK]
+    return MODELS
 
 BG = "#0a0a0c"
 CARD = "#17171c"
@@ -174,8 +183,13 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
     scroll = ctk.CTkScrollableFrame(root, fg_color="transparent",
                                     scrollbar_button_color="#2a2a30")
     scroll.pack(side="top", fill="both", expand=True, padx=20)
+    if (cfg.get("model") or {}).get("device") == "cpu":
+        ctk.CTkLabel(root, text="Running on the CPU. For large models and ~1s speed on an NVIDIA GPU, grab the GPU build from the website.",
+                     text_color=SUB, font=ctk.CTkFont(size=11), wraplength=W - 60,
+                     justify="left", anchor="w").pack(side="top", fill="x", padx=26, pady=(8, 0))
 
-    valid = [m[0] for m in MODELS]
+    mlist = _models_for(cfg)
+    valid = [m[0] for m in mlist]
     default = cfg.get("model", {}).get("name", "base")
     choice = {"value": default if default in valid else "base"}
     cards: dict = {}
@@ -188,7 +202,7 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
                                 border_color=ACCENT if on else CARD)
             c["dot"].configure(text="●" if on else "○", text_color=ACCENT if on else SUB)
 
-    for value, name, sub in MODELS:
+    for value, name, sub in mlist:
         card = ctk.CTkFrame(scroll, fg_color=CARD, corner_radius=14,
                             border_width=2, border_color=CARD)
         card.pack(fill="x", pady=5)
@@ -302,7 +316,8 @@ def _run_setup_tk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
     inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
     canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
-    valid = [m[0] for m in MODELS]
+    mlist = _models_for(cfg)
+    valid = [m[0] for m in mlist]
     default = cfg.get("model", {}).get("name", "base")
     choice = {"value": default if default in valid else "base"}
     cards: dict = {}
@@ -315,7 +330,7 @@ def _run_setup_tk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
                 w.config(bg=bg)
             c["dot"].config(text="●" if on else "○", fg=ACCENT if on else SUB)
 
-    for value, name, sub in MODELS:
+    for value, name, sub in mlist:
         card = tk.Frame(inner, bg=CARD); card.pack(fill="x", pady=4)
         dot = tk.Label(card, text="○", bg=CARD, fg=SUB, font=("Segoe UI", 15), width=2); dot.pack(side="left", padx=(10, 2), pady=10)
         txt = tk.Frame(card, bg=CARD); txt.pack(side="left", fill="x", expand=True, pady=8)
