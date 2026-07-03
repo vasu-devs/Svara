@@ -1,9 +1,12 @@
-"""First-run setup screen: welcome, a quick how-to, and a model chooser.
+"""First-run setup: welcome, a quick how-to, and a model chooser.
 
-Primary UI is a modern CustomTkinter window (rounded, dark, on-brand). Falls
-back to plain Tk if CustomTkinter is unavailable. run_setup() returns
-(model_name, transcriber) — a ready Transcriber so the app doesn't reload the
-model — or (None, None) if the window was closed.
+Auto-detects an NVIDIA GPU. If one is present, it offers every model and, on
+first launch, downloads the CUDA runtime once (~1.3 GB) so the app runs on the
+GPU. Without a GPU it offers only CPU-sized models. Primary UI is CustomTkinter
+(on-brand, animated logo); plain Tk is an automatic fallback.
+
+run_setup() returns (model_name, transcriber) — a ready Transcriber — or
+(None, None) if the window was closed.
 """
 
 import logging
@@ -17,60 +20,15 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-
-def _asset(name: str) -> str | None:
-    """Path to a bundled asset (frozen _MEIPASS or the source tree)."""
-    roots = [getattr(sys, "_MEIPASS", None),
-             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]
-    for base in roots:
-        if base:
-            p = os.path.join(base, "assets", name)
-            if os.path.exists(p):
-                return p
-    return None
-
-
-def _make_wave_frames(w: int, h: int, n: int):
-    """Pre-render a seamless loop of the flowing Svara strings as PIL frames.
-    Cycled on a label (not a live canvas) so it stays stable inside ctk."""
-    from PIL import Image, ImageDraw
-    cols = [(255, 95, 162), (139, 92, 246), (34, 211, 238)]  # pink · purple · cyan
-    mid = h / 2
-    frames = []
-    for f in range(n):
-        ph = 2 * math.pi * f / n            # full period → seamless loop
-        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-        d = ImageDraw.Draw(img)
-        for i, c in enumerate(cols):
-            pts = []
-            for x in range(0, w + 4, 4):
-                u = x / max(1, w)
-                env = math.sin(math.pi * u) ** 0.9
-                y = mid + env * (h * 0.30) * math.sin(7 * u + ph + i * 0.9) \
-                    + env * (h * 0.17) * math.sin(11 * u - ph * 0.8 - i * 0.6)
-                pts.append((x, y))
-            d.line(pts, fill=c + (85,), width=6, joint="curve")   # soft glow
-            d.line(pts, fill=c + (255,), width=2, joint="curve")  # bright core
-        frames.append(img)
-    return frames
-
 # (value, title, subtitle)
 MODELS = [
-    ("base", "Base", "Recommended · fast, good accuracy · ~150 MB"),
+    ("base", "Base", "Fast, good accuracy · ~150 MB"),
     ("small", "Small", "Better accuracy, a little slower · ~480 MB"),
-    ("medium", "Medium", "Great accuracy, slower on CPU · ~1.5 GB"),
+    ("medium", "Medium", "Great accuracy · ~1.5 GB"),
     ("tiny", "Tiny", "Fastest, roughest · ~75 MB"),
-    ("large-v3-turbo", "Large v3 Turbo", "Best accuracy · ~1.5 GB · GPU recommended"),
+    ("large-v3-turbo", "Large v3 Turbo", "Best accuracy · ~1.5 GB"),
 ]
-# Big models are impractically slow on a CPU (minutes per utterance), so the
-# CPU build only offers the ones a CPU can actually keep up with in real time.
-_CPU_OK = {"tiny", "base", "small"}
-
-
-def _models_for(cfg: dict):
-    if (cfg.get("model") or {}).get("device") == "cpu":
-        return [m for m in MODELS if m[0] in _CPU_OK]
-    return MODELS
+_CPU_OK = {"tiny", "base", "small"}   # what a CPU can transcribe in real time
 
 BG = "#0a0a0c"
 CARD = "#17171c"
@@ -81,26 +39,102 @@ ACCENT = "#22d3ee"
 ACCENT_HOVER = "#4fe0f2"
 
 
-def _write_model_choice(cfg_path, model: str) -> None:
-    """Persist the chosen model into config.yaml, preserving comments."""
+def _asset(name: str) -> str | None:
+    roots = [getattr(sys, "_MEIPASS", None),
+             os.path.dirname(os.path.dirname(os.path.abspath(__file__)))]
+    for base in roots:
+        if base:
+            p = os.path.join(base, "assets", name)
+            if os.path.exists(p):
+                return p
+    return None
+
+
+def _apply_config(cfg_path, model: str, device: str, compute: str) -> None:
+    """Write model / device / compute_type into config.yaml, keeping comments."""
     try:
         p = Path(cfg_path)
-        text = p.read_text(encoding="utf-8")
-        new = re.sub(r"(?m)^(  name:\s*)\S+", r"\g<1>" + model, text, count=1)
-        p.write_text(new, encoding="utf-8")
+        t = p.read_text(encoding="utf-8")
+        t = re.sub(r"(?m)^(  name:\s*)\S+", r"\g<1>" + model, t, count=1)
+        t = re.sub(r"(?m)^(  device:\s*)\S+", r"\g<1>" + device, t, count=1)
+        t = re.sub(r"(?m)^(  compute_type:\s*)\S+", r"\g<1>" + compute, t, count=1)
+        p.write_text(t, encoding="utf-8")
     except OSError:
-        log.debug("could not write model choice to config", exc_info=True)
+        log.debug("could not write config", exc_info=True)
+
+
+def _make_wave_frames(w: int, h: int, n: int):
+    """Seamless loop of the flowing Svara strings as PIL frames (cycled on a
+    label — stable inside ctk, unlike a live canvas)."""
+    from PIL import Image, ImageDraw
+    cols = [(255, 95, 162), (139, 92, 246), (34, 211, 238)]
+    mid = h / 2
+    frames = []
+    for f in range(n):
+        ph = 2 * math.pi * f / n
+        img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        for i, c in enumerate(cols):
+            pts = []
+            for x in range(0, w + 4, 4):
+                u = x / max(1, w)
+                env = math.sin(math.pi * u) ** 0.9
+                y = mid + env * (h * 0.30) * math.sin(7 * u + ph + i * 0.9) \
+                    + env * (h * 0.17) * math.sin(11 * u - ph * 0.8 - i * 0.6)
+                pts.append((x, y))
+            d.line(pts, fill=c + (85,), width=6, joint="curve")
+            d.line(pts, fill=c + (255,), width=2, joint="curve")
+        frames.append(img)
+    return frames
+
+
+def _plan(cfg):
+    """Return (use_gpu, models_list, default_model)."""
+    from . import cuda_setup as cuda
+    use_gpu = cuda.gpu_present()
+    mlist = MODELS if use_gpu else [m for m in MODELS if m[0] in _CPU_OK]
+    valid = [m[0] for m in mlist]
+    if use_gpu:
+        default = "large-v3-turbo"
+    else:
+        default = (cfg.get("model") or {}).get("name", "base")
+    if default not in valid:
+        default = valid[0]
+    return use_gpu, mlist, default
+
+
+def _load_model(cfg, cfg_path, model, use_gpu, dl):
+    """Runs in a worker thread. dl is a shared dict for progress reporting."""
+    from . import cuda_setup as cuda
+    if use_gpu:
+        if not cuda.cuda_available():
+            dl["phase"] = "cuda"
+            ok = cuda.download_cuda(progress=lambda d, t: dl.update(done=d, total=t))
+            if not ok:
+                raise RuntimeError("couldn't download GPU support (check your internet)")
+        cuda.setup()  # register the (now-present) CUDA DLLs
+        dev, comp = "cuda", "int8_float16"
+    else:
+        dev, comp = "cpu", "int8"
+    dl["phase"] = "model"
+    _apply_config(cfg_path, model, dev, comp)
+    mcfg = dict(cfg["model"])
+    mcfg.update(name=model, device=dev, compute_type=comp)
+    from .transcriber import Transcriber
+    return Transcriber(mcfg)
 
 
 # --------------------------------------------------------------------------- #
 #  Modern UI (CustomTkinter)                                                   #
 # --------------------------------------------------------------------------- #
 
-def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
+def _run_setup_ctk(cfg, cfg_path):
     import customtkinter as ctk
 
     ctk.set_appearance_mode("dark")
-    result: dict = {"model": None, "transcriber": None, "error": None}
+    use_gpu, mlist, default = _plan(cfg)
+    result = {"model": None, "transcriber": None, "error": None}
+    dl = {"phase": "", "done": 0, "total": 0}
 
     root = ctk.CTk()
     root.title("Svara — Setup")
@@ -121,11 +155,11 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
     if _ic:
         try:
             root.iconbitmap(_ic)
-            root.after(300, lambda: root.iconbitmap(_ic))  # CTk can reset it late
+            root.after(300, lambda: root.iconbitmap(_ic))
         except Exception:  # noqa: BLE001
             pass
 
-    # ---- bottom action bar (packed first → always visible) ----
+    # bottom action bar (always visible)
     action = ctk.CTkFrame(root, fg_color="transparent")
     action.pack(side="bottom", fill="x", padx=26, pady=(6, 20))
     btn = ctk.CTkButton(action, text="Start Svara", height=48, corner_radius=12,
@@ -134,12 +168,13 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
     btn.pack(fill="x")
     prog = ctk.CTkProgressBar(action, mode="indeterminate", progress_color=ACCENT,
                               fg_color=CARD, height=6, corner_radius=6)
-    status = ctk.CTkLabel(action, text="The model downloads once (needs internet), then runs offline.",
-                          text_color=SUB, font=ctk.CTkFont(size=12), wraplength=W - 60,
-                          justify="left", anchor="w")
+    status = ctk.CTkLabel(action, text=(
+        "Runs on your NVIDIA GPU. First launch downloads GPU support (~1.3 GB) once."
+        if use_gpu else "No NVIDIA GPU found — runs on the CPU. (Large models are GPU-only.)"),
+        text_color=SUB, font=ctk.CTkFont(size=12), wraplength=W - 60, justify="left", anchor="w")
     status.pack(fill="x", pady=(10, 0))
 
-    # ---- header: animated Svara strings + welcome ----
+    # header: animated strings + welcome
     head = ctk.CTkFrame(root, fg_color="transparent")
     head.pack(side="top", fill="x", padx=26, pady=(20, 0))
     _bw = W - 52
@@ -149,7 +184,7 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
         _frames = []
     if _frames:
         wlbl = ctk.CTkLabel(head, image=_frames[0], text="")
-        wlbl._frames = _frames  # keep refs alive
+        wlbl._frames = _frames
         wlbl.pack(fill="x", pady=(0, 8))
         _fi = [0]
 
@@ -170,55 +205,37 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
     for a, b in (("1   Double-tap", "Right Alt  to start listening"),
                  ("2   Speak", "your words type at the cursor"),
                  ("3   Tap", "Right Alt  to finish  (or hold to push-to-talk)")):
-        r = ctk.CTkFrame(howf, fg_color="transparent")
-        r.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(r, text=a, text_color=ACCENT, font=ctk.CTkFont(size=13, weight="bold"),
-                     anchor="w").pack(side="left")
-        ctk.CTkLabel(r, text="  " + b, text_color="#dcdce0", font=ctk.CTkFont(size=13),
-                     anchor="w").pack(side="left")
+        row = ctk.CTkFrame(howf, fg_color="transparent")
+        row.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(row, text=a, text_color=ACCENT, font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+        ctk.CTkLabel(row, text="  " + b, text_color="#dcdce0", font=ctk.CTkFont(size=13)).pack(side="left")
     ctk.CTkLabel(head, text="CHOOSE A MODEL", text_color=SUB,
-                 font=ctk.CTkFont(size=11, weight="bold"), anchor="w").pack(fill="x", pady=(16, 2))
+                 font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", pady=(16, 2))
 
-    # ---- scrollable model list ----
-    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent",
-                                    scrollbar_button_color="#2a2a30")
+    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent", scrollbar_button_color="#2a2a30")
     scroll.pack(side="top", fill="both", expand=True, padx=20)
-    if (cfg.get("model") or {}).get("device") == "cpu":
-        ctk.CTkLabel(root, text="Running on the CPU. For large models and ~1s speed on an NVIDIA GPU, grab the GPU build from the website.",
-                     text_color=SUB, font=ctk.CTkFont(size=11), wraplength=W - 60,
-                     justify="left", anchor="w").pack(side="top", fill="x", padx=26, pady=(8, 0))
 
-    mlist = _models_for(cfg)
-    valid = [m[0] for m in mlist]
-    default = cfg.get("model", {}).get("name", "base")
-    choice = {"value": default if default in valid else "base"}
+    choice = {"value": default}
     cards: dict = {}
 
     def select(v):
         choice["value"] = v
         for val, c in cards.items():
             on = val == v
-            c["card"].configure(fg_color=CARD_ON if on else CARD,
-                                border_color=ACCENT if on else CARD)
+            c["card"].configure(fg_color=CARD_ON if on else CARD, border_color=ACCENT if on else CARD)
             c["dot"].configure(text="●" if on else "○", text_color=ACCENT if on else SUB)
 
     for value, name, sub in mlist:
-        card = ctk.CTkFrame(scroll, fg_color=CARD, corner_radius=14,
-                            border_width=2, border_color=CARD)
+        card = ctk.CTkFrame(scroll, fg_color=CARD, corner_radius=14, border_width=2, border_color=CARD)
         card.pack(fill="x", pady=5)
-        dot = ctk.CTkLabel(card, text="○", text_color=SUB, width=22,
-                           font=ctk.CTkFont(size=17))
+        dot = ctk.CTkLabel(card, text="○", text_color=SUB, width=22, font=ctk.CTkFont(size=17))
         dot.pack(side="left", padx=(14, 4), pady=12)
         tf = ctk.CTkFrame(card, fg_color="transparent")
         tf.pack(side="left", fill="x", expand=True, pady=8)
-        nm = ctk.CTkLabel(tf, text=name, text_color=FG, anchor="w",
-                          font=ctk.CTkFont(size=15, weight="bold"))
-        nm.pack(fill="x")
-        sb = ctk.CTkLabel(tf, text=sub, text_color=SUB, anchor="w",
-                          font=ctk.CTkFont(size=12))
-        sb.pack(fill="x")
+        ctk.CTkLabel(tf, text=name, text_color=FG, anchor="w", font=ctk.CTkFont(size=15, weight="bold")).pack(fill="x")
+        ctk.CTkLabel(tf, text=sub, text_color=SUB, anchor="w", font=ctk.CTkFont(size=12)).pack(fill="x")
         cards[value] = {"card": card, "dot": dot}
-        for w in (card, dot, tf, nm, sb):
+        for w in (card, dot, tf, *tf.winfo_children()):
             w.bind("<Button-1>", lambda e, vv=value: select(vv))
     select(choice["value"])
 
@@ -228,37 +245,39 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
             return
         if result["error"] is not None:
             try:
-                prog.stop()
-                prog.pack_forget()
+                prog.stop(); prog.pack_forget()
             except Exception:  # noqa: BLE001
                 pass
-            status.configure(text=f"Could not set up the model: {result['error']}",
-                             text_color="#ff7a7a")
+            status.configure(text=f"Setup failed: {result['error']}", text_color="#ff7a7a")
             btn.configure(state="normal", text="Try again")
             return
+        if dl["phase"] == "cuda" and dl["total"]:
+            frac = dl["done"] / dl["total"]
+            try:
+                prog.configure(mode="determinate"); prog.set(frac)
+            except Exception:  # noqa: BLE001
+                pass
+            status.configure(text=f"Downloading GPU support…  {dl['done'] >> 20} / {dl['total'] >> 20} MB  ({int(frac * 100)}%)")
+        elif dl["phase"] == "model":
+            status.configure(text=f"Loading the {choice['value']} model…")
         root.after(200, _poll)
-
-    def _load(model):
-        try:
-            mcfg = dict(cfg["model"])
-            mcfg["name"] = model
-            from .transcriber import Transcriber
-            result["transcriber"] = Transcriber(mcfg)
-            result["model"] = model
-        except Exception as e:  # noqa: BLE001
-            result["error"] = str(e)
 
     def _start():
         model = choice["value"]
         btn.configure(state="disabled", text="Setting up…")
-        status.configure(text=f"Setting up the {model} model — downloading once, please wait…",
-                         text_color=FG)
         prog.pack(fill="x", pady=(10, 0), before=status)
         prog.start()
-        _write_model_choice(cfg_path, model)
         result["error"] = None
-        threading.Thread(target=_load, args=(model,), daemon=True).start()
-        root.after(200, _poll)
+
+        def work():
+            try:
+                result["transcriber"] = _load_model(cfg, cfg_path, model, use_gpu, dl)
+                result["model"] = model
+            except Exception as e:  # noqa: BLE001
+                result["error"] = str(e)
+
+        threading.Thread(target=work, daemon=True).start()
+        root.after(150, _poll)
 
     btn.configure(command=_start)
     root.bind("<Return>", lambda e: _start())
@@ -271,14 +290,15 @@ def _run_setup_ctk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
 #  Plain Tk fallback                                                           #
 # --------------------------------------------------------------------------- #
 
-def _run_setup_tk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
+def _run_setup_tk(cfg, cfg_path):
     try:
-        import tkinter as tk
         from tkinter import ttk
     except Exception:  # noqa: BLE001
         return None, None
 
-    result: dict = {"model": None, "transcriber": None, "error": None}
+    use_gpu, mlist, default = _plan(cfg)
+    result = {"model": None, "transcriber": None, "error": None}
+    dl = {"phase": "", "done": 0, "total": 0}
     root = tk.Tk()
     root.title("Svara — Setup")
     root.configure(bg=BG)
@@ -292,18 +312,25 @@ def _run_setup_tk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
         root.after(700, lambda: root.attributes("-topmost", False))
     except Exception:  # noqa: BLE001
         pass
+    _ic = _asset("icon.ico")
+    if _ic:
+        try:
+            root.iconbitmap(_ic)
+        except Exception:  # noqa: BLE001
+            pass
     outer = tk.Frame(root, bg=BG); outer.pack(fill="both", expand=True)
     action = tk.Frame(outer, bg=BG); action.pack(side="bottom", fill="x", padx=26, pady=(10, 18))
     btn = tk.Button(action, text="Start Svara", bg=ACCENT, fg="#06181d",
                     font=("Segoe UI Semibold", 13), bd=0, padx=20, pady=11, cursor="hand2")
     btn.pack(fill="x")
     prog = ttk.Progressbar(action, mode="indeterminate", length=W - 52)
-    status = tk.Label(action, text="The model downloads once, then runs offline.",
+    status = tk.Label(action, text=("Runs on your NVIDIA GPU (downloads ~1.3 GB once)."
+                                    if use_gpu else "No NVIDIA GPU found — runs on the CPU."),
                       bg=BG, fg=SUB, font=("Segoe UI", 9), wraplength=W - 52, justify="left")
     status.pack(fill="x", pady=(10, 0))
     head = tk.Frame(outer, bg=BG); head.pack(side="top", fill="x", padx=26, pady=(22, 0))
     tk.Label(head, text="Welcome to Svara", bg=BG, fg=FG, font=("Segoe UI Semibold", 22)).pack(anchor="w")
-    tk.Label(head, text="Private voice dictation that runs on your own machine.",
+    tk.Label(head, text="Private voice dictation on your own machine.",
              bg=BG, fg=SUB, font=("Segoe UI", 11)).pack(anchor="w", pady=(2, 14))
     tk.Label(head, text="CHOOSE A MODEL", bg=BG, fg=SUB, font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(6, 4))
     mid = tk.Frame(outer, bg=BG); mid.pack(side="top", fill="both", expand=True, padx=(26, 20))
@@ -315,11 +342,7 @@ def _run_setup_tk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
     canvas.pack(side="left", fill="both", expand=True); vbar.pack(side="right", fill="y")
     inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
     canvas.bind("<Configure>", lambda e: canvas.itemconfig(win_id, width=e.width))
-    canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
-    mlist = _models_for(cfg)
-    valid = [m[0] for m in mlist]
-    default = cfg.get("model", {}).get("name", "base")
-    choice = {"value": default if default in valid else "base"}
+    choice = {"value": default}
     cards: dict = {}
 
     def select(v):
@@ -349,27 +372,30 @@ def _run_setup_tk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
                 prog.stop(); prog.pack_forget()
             except Exception:  # noqa: BLE001
                 pass
-            status.config(text=f"Could not set up the model: {result['error']}", fg="#ff6b6b")
+            status.config(text=f"Setup failed: {result['error']}", fg="#ff6b6b")
             btn.config(state="normal", text="Try again"); return
-        root.after(200, _poll)
-
-    def _load(model):
-        try:
-            mcfg = dict(cfg["model"]); mcfg["name"] = model
-            from .transcriber import Transcriber
-            result["transcriber"] = Transcriber(mcfg); result["model"] = model
-        except Exception as e:  # noqa: BLE001
-            result["error"] = str(e)
+        if dl["phase"] == "cuda" and dl["total"]:
+            status.config(text=f"Downloading GPU support… {dl['done'] >> 20}/{dl['total'] >> 20} MB", fg=FG)
+        elif dl["phase"] == "model":
+            status.config(text=f"Loading the {choice['value']} model…", fg=FG)
+        root.after(250, _poll)
 
     def _start(_evt=None):
         if btn["state"] == "disabled":
             return
         model = choice["value"]
         btn.config(state="disabled", text="Setting up…")
-        status.config(text=f"Setting up the {model} model — downloading once, please wait…", fg=FG)
         prog.pack(fill="x", pady=(10, 0), before=status); prog.start(12)
-        _write_model_choice(cfg_path, model); result["error"] = None
-        threading.Thread(target=_load, args=(model,), daemon=True).start()
+        result["error"] = None
+
+        def work():
+            try:
+                result["transcriber"] = _load_model(cfg, cfg_path, model, use_gpu, dl)
+                result["model"] = model
+            except Exception as e:  # noqa: BLE001
+                result["error"] = str(e)
+
+        threading.Thread(target=work, daemon=True).start()
         root.after(200, _poll)
 
     btn.config(command=_start); root.bind("<Return>", _start)
@@ -381,9 +407,9 @@ def _run_setup_tk(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
     return result["model"], result["transcriber"]
 
 
-def run_setup(cfg: dict, cfg_path) -> tuple[str | None, object | None]:
+def run_setup(cfg, cfg_path):
     try:
         return _run_setup_ctk(cfg, cfg_path)
-    except Exception:  # noqa: BLE001 — CustomTkinter missing → plain fallback
-        log.info("modern setup unavailable, using fallback window", exc_info=True)
+    except Exception:  # noqa: BLE001
+        log.info("modern setup unavailable, using fallback", exc_info=True)
         return _run_setup_tk(cfg, cfg_path)
