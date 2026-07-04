@@ -321,6 +321,16 @@ def _run_setup_ctk(cfg, cfg_path):
             w.bind("<Button-1>", lambda e, vv=value: select(vv))
     select(choice["value"])
 
+    # CTkProgressBar re-runs its mode-switch setup (and visibly stutters) if
+    # configure(mode=...) is called every tick, even to the SAME mode — so
+    # only call it on an actual transition, never unconditionally per poll.
+    prog_mode = {"cur": "indeterminate"}  # matches the widget's construction
+
+    def _set_prog_mode(mode: str):
+        if prog_mode["cur"] != mode:
+            prog.configure(mode=mode)
+            prog_mode["cur"] = mode
+
     def _poll():
         if result["transcriber"] is not None:
             # Hand off: the app starts with this transcriber and immediately
@@ -339,7 +349,7 @@ def _run_setup_ctk(cfg, cfg_path):
         if dl["phase"] == "cuda" and dl["total"]:
             frac = dl["done"] / dl["total"]
             try:
-                prog.configure(mode="determinate"); prog.set(frac)
+                _set_prog_mode("determinate"); prog.set(frac)
             except Exception:  # noqa: BLE001
                 pass
             status.configure(
@@ -348,7 +358,7 @@ def _run_setup_ctk(cfg, cfg_path):
         elif dl["phase"] == "model_dl" and dl["total"]:
             frac = dl["done"] / dl["total"]
             try:
-                prog.configure(mode="determinate"); prog.set(frac)
+                _set_prog_mode("determinate"); prog.set(frac)
             except Exception:  # noqa: BLE001
                 pass
             status.configure(
@@ -356,8 +366,10 @@ def _run_setup_ctk(cfg, cfg_path):
                 text_color=ACCENT)
         elif dl["phase"] == "model":
             try:
-                prog.configure(mode="indeterminate")
-                prog.start()
+                if prog_mode["cur"] != "indeterminate":
+                    prog.configure(mode="indeterminate")
+                    prog.start()
+                    prog_mode["cur"] = "indeterminate"
             except Exception:  # noqa: BLE001
                 pass
             status.configure(text=f"✓ Downloaded — loading the {display_name(choice['value'])} model…", text_color=SUB)
