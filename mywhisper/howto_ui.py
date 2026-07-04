@@ -4,14 +4,22 @@ Opened by the running app when:
   - the user double-clicks Svara.exe again (the doomed second copy signals us),
   - or from the tray menu ("How to use / Test").
 
-Runs plain tkinter in its own daemon thread (the main thread is owned by the
-pystray loop, and the overlay is raw Win32 — there is no other Tk mainloop).
-Plain tk, not CustomTkinter: ctk keeps global appearance state that misbehaves
-when windows are created repeatedly across threads. The window never closes
-itself — only the user closes it.
+One tk.Tk() root is created ONCE, lazily, on a dedicated persistent daemon
+thread, and reused for the rest of the process — never a fresh Tk() per call.
+Tcl's Windows notifier is not reliably safe to (re-)initialize repeatedly
+across threads in a long-running process; creating a brand-new interpreter
+every time this window was requested was intermittently producing a window
+that showed (native title bar drawn by the OS) but never actually painted —
+its message pump had silently failed to attach. Reusing one root for the
+whole process lifetime removes the entire class of that failure: "close"
+just withdraws the window, and it's redisplayed (rebuilt in place) on the
+next request via a thread-safe queue.
+
+The window never closes itself — only the user closes (hides) it.
 """
 
 import logging
+import queue
 import threading
 
 from .setup_ui import ACCENT, BG, BTN_TEXT, CARD, CARD_ON, FG, SUB
@@ -41,44 +49,59 @@ LANGS = [
     ("ar", "العربية"),
 ]
 
-_open_lock = threading.Lock()
-_is_open = False
+_queue: "queue.Queue[tuple]" = queue.Queue()
+_thread_lock = threading.Lock()
+_thread_started = False
 
 
 def show_howto(app, first_run: bool = False) -> None:
-    """Open (or ignore if already open) the Svara how-to/test window.
+    """Request the Svara how-to/test window be (re)shown.
 
     first_run=True is the post-setup "You're all set" welcome — same window,
     celebratory copy. The live test is the REAL pipeline: double-tap the
     hotkey and the pill overlay appears while words stream into the textbox.
     """
-    global _is_open
-    with _open_lock:
-        if _is_open:
-            return
-        _is_open = True
-    threading.Thread(target=_run, args=(app, first_run), daemon=True,
-                     name="howto-window").start()
+    global _thread_started
+    with _thread_lock:
+        if not _thread_started:
+            _thread_started = True
+            threading.Thread(target=_ui_main, daemon=True,
+                             name="howto-ui").start()
+    _queue.put((app, first_run))
 
 
-def _run(app, first_run):
-    global _is_open
-    try:
-        _build(app, first_run)
-    except Exception:  # noqa: BLE001 — a broken help window must not hurt the app
-        log.exception("how-to window failed")
-    finally:
-        with _open_lock:
-            _is_open = False
-
-
-def _build(app, first_run=False):
+def _ui_main():
+    """The one persistent UI thread — one Tk root for the process lifetime."""
     import tkinter as tk
+
+    root = tk.Tk()
+    root.withdraw()  # hidden until the first real request arrives
+
+    def _poll():
+        try:
+            while True:
+                app, first_run = _queue.get_nowait()
+                try:
+                    _build(root, app, first_run)
+                except Exception:  # noqa: BLE001 — a broken window must not kill the thread
+                    log.exception("how-to window failed")
+        except queue.Empty:
+            pass
+        root.after(150, _poll)
+
+    root.after(150, _poll)
+    root.mainloop()
+
+
+def _build(root, app, first_run=False):
+    import tkinter as tk
+
+    for w in root.winfo_children():
+        w.destroy()
 
     cfg = app.cfg
     hk = cfg["recording"].get("hotkey", "right alt")
 
-    root = tk.Tk()
     root.title("Svara — You're all set" if first_run else "Svara")
     root.configure(bg=BG)
     W = 560
@@ -86,6 +109,7 @@ def _build(app, first_run=False):
     H = min(680, sh - 90)
     root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
     root.minsize(480, 520)
+    root.deiconify()
     try:
         root.attributes("-topmost", True)
         root.lift()
@@ -196,8 +220,7 @@ def _build(app, first_run=False):
     tk.Button(foot, text="Finish  →" if first_run else "Close",
               bg=ACCENT, fg=BTN_TEXT,
               font=("Segoe UI Semibold", 10), bd=0, padx=22, pady=7,
-              cursor="hand2", command=root.destroy).pack(side="right")
+              cursor="hand2", command=root.withdraw).pack(side="right")
 
     box.focus_set()
-    root.protocol("WM_DELETE_WINDOW", root.destroy)  # user-closed only
-    root.mainloop()
+    root.protocol("WM_DELETE_WINDOW", root.withdraw)  # hide, not destroy — reused next time
