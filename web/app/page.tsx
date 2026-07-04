@@ -4,7 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { Visualizer } from "@/components/Visualizer";
 import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/lib/engine";
 
-const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara.exe";
+// Versioned filename, not a static "Svara.exe" — re-uploading to the exact
+// same URL repeatedly (as every fix does) is a caching landmine: browsers
+// and CDN edges can keep serving an old cached response for that URL
+// indefinitely. A new version number means a genuinely new URL every time,
+// so a "fresh download" can never silently be a stale one.
+const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-0.2.1.exe";
 const GITHUB = "https://github.com/vasu-devs/Svara";
 
 const SPY = [
