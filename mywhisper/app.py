@@ -27,12 +27,47 @@ from .tray import Tray
 log = logging.getLogger(__name__)
 
 try:
+    import math
+    import struct
     import winsound
 
-    def _beep(freq: int, ms: int):
-        threading.Thread(target=winsound.Beep, args=(freq, ms), daemon=True).start()
+    _SR = 44100
+    _TONE_CACHE: dict[tuple[float, int, float], bytes] = {}
+
+    def _make_tone(freq: float, ms: int, vol: float) -> bytes:
+        """A short, soft sine-wave chime — winsound.Beep is a raw square wave
+        with hard on/off edges (a harsh click), so this shapes a sine with a
+        smooth attack/release envelope instead: pleasant, not alarming."""
+        n = int(_SR * ms / 1000)
+        attack = max(1, int(_SR * 0.008))
+        release = max(1, int(_SR * 0.05))
+        samples = bytearray()
+        for i in range(n):
+            env = min(1.0, i / attack) * min(1.0, (n - i) / release)
+            s = math.sin(2 * math.pi * freq * i / _SR) * vol * env
+            samples += struct.pack("<h", int(max(-1.0, min(1.0, s)) * 32767))
+        header = struct.pack(
+            "<4sI4s4sIHHIIHH4sI",
+            b"RIFF", 36 + len(samples), b"WAVE", b"fmt ", 16, 1, 1, _SR,
+            _SR * 2, 2, 16, b"data", len(samples))
+        return header + bytes(samples)
+
+    def _chime(freq: float, ms: int = 130, vol: float = 0.3):
+        key = (freq, ms, vol)
+        wav = _TONE_CACHE.get(key)
+        if wav is None:
+            wav = _make_tone(freq, ms, vol)
+            _TONE_CACHE[key] = wav
+
+        def _play():
+            try:
+                winsound.PlaySound(wav, winsound.SND_MEMORY | winsound.SND_NODEFAULT)
+            except Exception:  # noqa: BLE001
+                pass
+
+        threading.Thread(target=_play, daemon=True).start()
 except ImportError:  # non-Windows dev machine
-    def _beep(freq: int, ms: int):
+    def _chime(freq: float, ms: int = 130, vol: float = 0.3):
         pass
 
 
@@ -162,6 +197,82 @@ class MyWhisperApp:
 
         threading.Thread(target=work, daemon=True, name="model-switch").start()
 
+    @property
+    def gpu_available(self) -> bool:
+        """Whether an NVIDIA GPU is present (gates the Device menu's GPU option)."""
+        try:
+            from . import cuda_setup as cuda
+            return cuda.gpu_present()
+        except Exception:  # noqa: BLE001
+            return False
+
+    def set_device(self, device: str):
+        """Switch the CURRENT model to run on cpu or cuda, live from the tray.
+        Downloads the CUDA runtime on first switch to GPU if needed."""
+        if self._model_switch or device == self.transcriber.device_used:
+            return
+        self._model_switch = True
+
+        def work():
+            try:
+                from . import cuda_setup as cuda
+                from .paths import ensure_config
+                from .setup_ui import _apply_config
+
+                if device == "cuda":
+                    if not cuda.gpu_present():
+                        if self.tray:
+                            self.tray.notify("No NVIDIA GPU detected on this machine.")
+                        return
+                    if not cuda.cuda_available():
+                        if self.tray:
+                            self.tray.notify(
+                                "Downloading GPU support (~1.3 GB) — one time, "
+                                "please wait…")
+                        if not cuda.download_cuda():
+                            if self.tray:
+                                self.tray.notify(
+                                    "Couldn't download GPU support — staying on CPU.")
+                            return
+                    cuda.setup()
+                    comp = "int8_float16"
+                else:
+                    comp = "int8"
+                if self.tray:
+                    self.tray.notify(f"Switching to {device.upper()} — dictation "
+                                     "keeps working on the current device "
+                                     "meanwhile…")
+                mcfg = dict(self.cfg["model"])
+                mcfg.update(device=device, compute_type=comp)
+                new = Transcriber(mcfg)  # loads + warms up
+                self.transcriber = new
+                self.cfg["model"]["device"] = new.device_used
+                self.cfg["model"]["compute_type"] = new.compute_used
+                _apply_config(ensure_config(), self.cfg["model"]["name"],
+                              new.device_used, new.compute_used)
+                if self.tray:
+                    self.tray.notify(f"✓ Now running on {new.device_used.upper()}")
+                log.info("device → %s (%s)", new.device_used, new.compute_used)
+            except Exception:  # noqa: BLE001
+                log.exception("device switch failed")
+                if self.tray:
+                    self.tray.notify("Device switch failed — still on "
+                                     f"{self.transcriber.device_used.upper()}. "
+                                     "See logs/mywhisper.log")
+            finally:
+                self._model_switch = False
+
+        threading.Thread(target=work, daemon=True, name="device-switch").start()
+
+    # -- streaming ------------------------------------------------------------
+
+    def set_streaming_mode(self, mode: str):
+        """live = type as you speak · preview = show while speaking, type after
+        · off = classic batch. Takes effect on the next recording, persists."""
+        self.cfg["streaming"]["mode"] = mode
+        self._save_state(streaming_mode=mode)
+        log.info("streaming → %s", mode)
+
     # -- language ------------------------------------------------------------
 
     @property
@@ -274,8 +385,8 @@ class MyWhisperApp:
             return
         self.recorder.start()
         self.overlay.show("listening")
-        if self.cfg["ui"]["sounds"]:
-            _beep(1175, 60)
+        # No sound here by design — the pill's appearance is the "you're being
+        # heard" cue; a tone on every single dictation start got old fast.
         if self.tray:
             self.tray.set_recording(True)
         if self.cfg["streaming"]["mode"] in ("preview", "live"):
@@ -288,7 +399,7 @@ class MyWhisperApp:
         """Double-tap: hands-free mode — recording continues until next tap."""
         self.overlay.show("locked")
         if self.cfg["ui"]["sounds"]:
-            _beep(1568, 60)
+            _chime(784, 130, 0.3)  # G5 — soft, bright: "now hands-free"
         log.info("🔒 locked (hands-free) — tap %s to finish",
                  self.cfg["recording"]["hotkey"])
 
@@ -356,7 +467,7 @@ class MyWhisperApp:
             self.tray.set_recording(False)
         if audio is not None:
             if self.cfg["ui"]["sounds"]:
-                _beep(440, 50)
+                _chime(440, 90, 0.2)  # A4 — soft, brief: "discarded, no big deal"
             log.info("✕ cancelled (tap)")
 
     def stop_recording(self):
@@ -367,7 +478,7 @@ class MyWhisperApp:
         self._stopping = True
         self.overlay.hide()  # pill closes right at your tap — no tick, no counter
         if self.cfg["ui"]["sounds"]:
-            _beep(880, 60)
+            _chime(587, 150, 0.32)  # D5 — warm: "done, working on it"
         threading.Timer(0.4, self._finalize_stop).start()
 
     def _finalize_stop(self):

@@ -167,6 +167,8 @@ def main() -> int:
             if saved.get("language"):  # "auto" or a whisper language code
                 cfg["model"]["language"] = (
                     None if saved["language"] == "auto" else saved["language"])
+            if saved.get("streaming_mode"):
+                cfg["streaming"]["mode"] = saved["streaming_mode"]
         except (OSError, ValueError):
             pass
 

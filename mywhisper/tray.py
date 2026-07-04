@@ -89,6 +89,24 @@ class Tray:
 
             return pystray.MenuItem(name, action, checked=is_checked, radio=True)
 
+        def streaming_item(mode, label):
+            def action(icon, item):
+                self.app.set_streaming_mode(mode)
+
+            def is_checked(item):
+                return self.app.cfg["streaming"]["mode"] == mode
+
+            return pystray.MenuItem(label, action, checked=is_checked, radio=True)
+
+        def device_item(device, label):
+            def action(icon, item):
+                self.app.set_device(device)
+
+            def is_checked(item):
+                return self.app.transcriber.device_used == device
+
+            return pystray.MenuItem(label, action, checked=is_checked, radio=True)
+
         from .howto_ui import LANGS
         from .setup_ui import MODELS
 
@@ -107,6 +125,28 @@ class Tray:
             pystray.MenuItem(
                 "Model",
                 pystray.Menu(*[model_item(*m) for m in MODELS]),
+            ),
+            pystray.MenuItem(
+                "Device",
+                pystray.Menu(
+                    device_item("cpu", "CPU"),
+                    pystray.MenuItem(
+                        "GPU (NVIDIA)",
+                        lambda icon, item: self.app.set_device("cuda"),
+                        checked=lambda item: self.app.transcriber.device_used == "cuda",
+                        radio=True,
+                        # hide entirely on machines with no NVIDIA GPU at all.
+                        visible=lambda item: self.app.gpu_available,
+                    ),
+                ),
+            ),
+            pystray.MenuItem(
+                "Streaming",
+                pystray.Menu(
+                    streaming_item("live", "Live — type as you speak"),
+                    streaming_item("preview", "Preview — show while speaking, type after"),
+                    streaming_item("off", "Off — classic, type after you stop"),
+                ),
             ),
             pystray.MenuItem(
                 "Language",
