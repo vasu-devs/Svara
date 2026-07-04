@@ -20,14 +20,36 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
+# (model id, display name, blurb). Ids can be plain whisper sizes or Hugging
+# Face CT2 repo ids — faster-whisper takes both. Distil models are distilled
+# whisper: same-or-better accuracy than the next size up, smaller and several
+# times faster to decode — but ENGLISH-ONLY, hence the multilingual entries.
 MODELS = [
-    ("base", "Base", "Fast, good accuracy · ~150 MB"),
-    ("small", "Small", "Better accuracy, a little slower · ~480 MB"),
-    ("medium", "Medium", "Great accuracy · ~1.5 GB"),
-    ("tiny", "Tiny", "Fastest, roughest · ~75 MB"),
-    ("large-v3-turbo", "Large v3 Turbo", "Best accuracy · ~1.5 GB"),
+    ("Systran/faster-distil-whisper-small.en", "English · Distil Small",
+     "Best small pick for English — Small's accuracy, much faster · ~330 MB"),
+    ("base", "Base · all languages", "Fast, decent accuracy · ~150 MB"),
+    ("collabora/faster-whisper-small-hindi", "हिन्दी Hindi",
+     "Tuned for Hindi — dramatically better than stock models · ~480 MB"),
+    ("small", "Small · all languages",
+     "Better accuracy, a little slower · ~480 MB"),
+    ("tiny", "Tiny · all languages",
+     "Fastest, roughest — for very low-end PCs · ~75 MB"),
+    ("Systran/faster-distil-whisper-medium.en", "English · Distil Medium",
+     "Great accuracy at half of Medium's size · ~790 MB"),
+    ("distil-whisper/distil-large-v3.5-ct2", "English · Distil Large v3.5",
+     "Most accurate for English — smaller AND faster than Turbo · ~1.5 GB"),
+    ("large-v3-turbo", "Large v3 Turbo · all languages",
+     "Best multilingual accuracy · ~1.6 GB"),
 ]
-_CPU_OK = {"tiny", "base", "small"}
+_CPU_OK = {"tiny", "base", "small",
+           "Systran/faster-distil-whisper-small.en",
+           "collabora/faster-whisper-small-hindi"}
+_NAMES = {value: name for value, name, _sub in MODELS}
+
+
+def display_name(model: str) -> str:
+    """Human label for a model id (repo ids are ugly in UI text)."""
+    return _NAMES.get(model, model.split("/")[-1])
 
 BG = "#0a0a0c"
 CARD = "#17171c"
@@ -89,7 +111,10 @@ def _plan(cfg):
     use_gpu = cuda.gpu_present()
     mlist = MODELS if use_gpu else [m for m in MODELS if m[0] in _CPU_OK]
     valid = [m[0] for m in mlist]
-    default = "large-v3-turbo" if use_gpu else (cfg.get("model") or {}).get("name", "base")
+    if use_gpu:
+        default = "large-v3-turbo"  # multilingual-safe top pick
+    else:
+        default = (cfg.get("model") or {}).get("name") or valid[0]
     if default not in valid:
         default = valid[0]
     return use_gpu, mlist, default
@@ -440,7 +465,7 @@ def _run_setup_ctk(cfg, cfg_path):
             except Exception:  # noqa: BLE001
                 pass
             status.configure(
-                text=f"⬇  Downloading the {choice['value']} model…   {dl['done'] >> 20} / {dl['total'] >> 20} MB   ·   {int(frac * 100)}%",
+                text=f"⬇  Downloading the {display_name(choice['value'])} model…   {dl['done'] >> 20} / {dl['total'] >> 20} MB   ·   {int(frac * 100)}%",
                 text_color=ACCENT)
         elif dl["phase"] == "model":
             try:
@@ -448,7 +473,7 @@ def _run_setup_ctk(cfg, cfg_path):
                 prog.start()
             except Exception:  # noqa: BLE001
                 pass
-            status.configure(text=f"✓ Downloaded — loading the {choice['value']} model…", text_color=SUB)
+            status.configure(text=f"✓ Downloaded — loading the {display_name(choice['value'])} model…", text_color=SUB)
         root.after(120, _poll)
 
     def _start():
@@ -578,10 +603,10 @@ def _run_setup_tk(cfg, cfg_path):
         if dl["phase"] == "cuda" and dl["total"]:
             status.config(text=f"Downloading GPU support… {dl['done'] >> 20}/{dl['total'] >> 20} MB", fg=FG)
         elif dl["phase"] == "model_dl" and dl["total"]:
-            status.config(text=f"Downloading the {choice['value']} model… "
+            status.config(text=f"Downloading the {display_name(choice['value'])} model… "
                                f"{dl['done'] >> 20}/{dl['total'] >> 20} MB", fg=FG)
         elif dl["phase"] == "model":
-            status.config(text=f"Loading the {choice['value']} model…", fg=FG)
+            status.config(text=f"Loading the {display_name(choice['value'])} model…", fg=FG)
         root.after(250, _poll)
 
     def _start(_evt=None):

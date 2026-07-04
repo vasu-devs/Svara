@@ -71,6 +71,17 @@ class Tray:
 
             return pystray.MenuItem(name, action, checked=is_checked, radio=True)
 
+        def lang_item(code, label):
+            def action(icon, item):
+                self.app.set_language(code)
+
+            def is_checked(item):
+                return self.app.current_language == code
+
+            return pystray.MenuItem(label, action, checked=is_checked, radio=True)
+
+        from .howto_ui import LANGS
+
         menu = pystray.Menu(
             pystray.MenuItem(
                 lambda item: f"Svara — {self.app.model_label}",
@@ -78,6 +89,15 @@ class Tray:
                 enabled=False,
             ),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                "How to use / Test…",
+                lambda icon, item: self.app.show_howto(),
+                default=True,  # double-clicking the tray icon opens it too
+            ),
+            pystray.MenuItem(
+                "Language",
+                pystray.Menu(*[lang_item(c, lbl) for c, lbl in LANGS]),
+            ),
             pystray.MenuItem(
                 "Theme",
                 pystray.Menu(*[theme_item(n) for n in theme_names()]),

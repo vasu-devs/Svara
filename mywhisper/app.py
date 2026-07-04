@@ -7,6 +7,7 @@ Flow:  long-press hotkey ▶ Recorder (pre-roll + mic) ▶ queue ▶ worker thre
 
 import json
 import logging
+import os
 import queue
 import sys
 import threading
@@ -92,6 +93,46 @@ class MyWhisperApp:
     def toggle_paused(self):
         self.paused = not self.paused
         log.info("Paused" if self.paused else "Resumed")
+
+    # -- language ------------------------------------------------------------
+
+    @property
+    def current_language(self):
+        """Whisper language code in effect, or None for auto-detect."""
+        return self.transcriber.cfg.get("language")
+
+    def set_language(self, code):
+        """Switch the transcription language live (None = auto-detect)."""
+        self.transcriber.cfg["language"] = code
+        self._save_state(language=code or "auto")
+        log.info("language → %s", code or "auto-detect")
+
+    # -- the Svara window (how-to + live test + language) ---------------------
+
+    def show_howto(self):
+        from .howto_ui import show_howto
+
+        show_howto(self)
+
+    def _howto_signal_listener(self):
+        """When the user double-clicks Svara.exe again, that doomed copy
+        signals this named event — respond by opening the Svara window
+        instead of leaving the click unanswered."""
+        if os.name != "nt":
+            return
+        import ctypes
+
+        k32 = ctypes.windll.kernel32
+        handle = k32.CreateEventW(None, False, False, "Svara_ShowHowTo")
+        if not handle:
+            return
+        try:
+            while not self._shutdown.is_set():
+                if k32.WaitForSingleObject(handle, 500) == 0:  # WAIT_OBJECT_0
+                    log.info("second launch detected — opening the Svara window")
+                    self.show_howto()
+        finally:
+            k32.CloseHandle(handle)
 
     def toggle_fillers(self):
         self.cleanup.strip_fillers_enabled = not self.cleanup.strip_fillers_enabled
@@ -458,6 +499,8 @@ class MyWhisperApp:
         self.hotkey.start()
         threading.Thread(target=self._monitor, daemon=True, name="monitor").start()
         threading.Thread(target=self._worker, daemon=True, name="worker").start()
+        threading.Thread(target=self._howto_signal_listener, daemon=True,
+                         name="howto-signal").start()
 
         hk = self.cfg["recording"]["hotkey"]
         mode = self.cfg["recording"]["mode"]

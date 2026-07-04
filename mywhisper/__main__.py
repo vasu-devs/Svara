@@ -164,6 +164,9 @@ def main() -> int:
                 cfg["ui"]["bg"] = saved["bg"]
             if saved.get("pos"):
                 cfg["ui"]["pos"] = saved["pos"]
+            if saved.get("language"):  # "auto" or a whisper language code
+                cfg["model"]["language"] = (
+                    None if saved["language"] == "auto" else saved["language"])
         except (OSError, ValueError):
             pass
 
@@ -190,7 +193,22 @@ def main() -> int:
             "MyWhisper is already running — this copy will exit. "
             "(Check the tray for the mic icon.)"
         )
-        if getattr(sys, "frozen", False):
+        # Ask the RUNNING instance to open its Svara window (how-to + test
+        # area) — the user's double-click gets a real answer, from the app
+        # itself, not a dialog from this doomed copy.
+        signaled = False
+        if os.name == "nt":
+            try:
+                EVENT_MODIFY_STATE = 0x0002
+                k32 = ctypes.windll.kernel32
+                h = k32.OpenEventW(EVENT_MODIFY_STATE, False, "Svara_ShowHowTo")
+                if h:
+                    signaled = bool(k32.SetEvent(h))
+                    k32.CloseHandle(h)
+            except Exception:  # noqa: BLE001
+                pass
+        if not signaled and getattr(sys, "frozen", False):
+            # Fallback (an older build without the listener is running).
             hk = cfg["recording"].get("hotkey", "right alt")
             _info_box(
                 "Svara is already running.\n\n"
@@ -216,11 +234,15 @@ def main() -> int:
         setup_done = setup_flag.read_text(encoding="utf-8").strip() == stamp
     except OSError:
         pass
+    # Keep in sync with setup_ui._CPU_OK (not imported: that module pulls tkinter).
+    cpu_ok = ("tiny", "base", "small",
+              "Systran/faster-distil-whisper-small.en",
+              "collabora/faster-whisper-small-hindi")
     stale_cpu_cfg = False
     try:
         from .cuda_setup import gpu_present
         stale_cpu_cfg = (cfg["model"].get("device") == "cpu"
-                         and cfg["model"].get("name") not in ("tiny", "base", "small")
+                         and cfg["model"].get("name") not in cpu_ok
                          and gpu_present())
     except Exception:  # noqa: BLE001
         pass
@@ -245,7 +267,7 @@ def main() -> int:
 
     from .app import MyWhisperApp
 
-    _splash(f"Loading the {cfg['model']['name']} speech model…")
+    _splash(f"Loading the {cfg['model']['name'].split('/')[-1]} speech model…")
     app = MyWhisperApp(cfg, no_tray=args.no_tray, transcriber=transcriber)
     _splash(close=True)
     app.run()
