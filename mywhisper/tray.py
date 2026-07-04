@@ -73,7 +73,7 @@ class Tray:
 
         menu = pystray.Menu(
             pystray.MenuItem(
-                lambda item: f"MyWhisper — {self.app.model_label}",
+                lambda item: f"Svara — {self.app.model_label}",
                 None,
                 enabled=False,
             ),
@@ -108,11 +108,21 @@ class Tray:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", lambda icon, item: self.app.shutdown()),
         )
-        self.icon = pystray.Icon("MyWhisper", _make_image(), "MyWhisper", menu)
+        hk = app.cfg["recording"].get("hotkey", "right alt")
+        self.icon = pystray.Icon(
+            "Svara", _make_image(), f"Svara — double-tap {hk} to dictate", menu)
 
     def set_recording(self, active: bool):
         if self.icon:
             self.icon.icon = _make_image(active)
+
+    def notify(self, message: str, title: str = "Svara"):
+        """Windows toast balloon from the tray icon (best-effort)."""
+        if self.icon:
+            try:
+                self.icon.notify(message, title)
+            except Exception:  # noqa: BLE001 — feedback must never crash the app
+                log.debug("tray notify failed", exc_info=True)
 
     def run(self):
         """Blocking — call from the main thread."""

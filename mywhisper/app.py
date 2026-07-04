@@ -8,6 +8,7 @@ Flow:  long-press hotkey ▶ Recorder (pre-roll + mic) ▶ queue ▶ worker thre
 import json
 import logging
 import queue
+import sys
 import threading
 import time
 from pathlib import Path
@@ -468,6 +469,18 @@ class MyWhisperApp:
         else:
             log.info("MyWhisper ready — long-press [%s] and speak "
                      "(tap = cancel, double-tap = hands-free lock).", hk)
+
+        # Packaged app: a double-click must never look like "nothing happened".
+        # Flash the pill briefly and toast from the tray once the icon is up.
+        if getattr(sys, "frozen", False):
+            self.overlay.show("listening")
+            threading.Timer(1.8, lambda: (
+                self.overlay.hide() if not self.recorder.recording else None
+            )).start()
+            if self.tray:
+                threading.Timer(1.2, lambda: self.tray.notify(
+                    f"Ready — double-tap {hk} in any text field and speak. "
+                    "I live in the system tray (near the clock).")).start()
 
         try:
             if self.tray and self.tray.icon:

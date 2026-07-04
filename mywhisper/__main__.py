@@ -21,6 +21,32 @@ def _single_instance() -> bool:
     return True
 
 
+def _splash(text: str | None = None, close: bool = False) -> None:
+    """Drive the PyInstaller onefile splash screen (no-op in any other build)."""
+    try:
+        import pyi_splash
+
+        if text is not None:
+            pyi_splash.update_text(text)
+        if close:
+            pyi_splash.close()
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _info_box(text: str, title: str = "Svara") -> None:
+    """Topmost native message box — the windowed exe has no console, so this is
+    the only way a headless launch can talk to the user."""
+    if os.name != "nt":
+        return
+    try:
+        MB_ICONINFORMATION, MB_TOPMOST, MB_SETFOREGROUND = 0x40, 0x40000, 0x10000
+        ctypes.windll.user32.MessageBoxW(
+            None, text, title, MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main() -> int:
     # The keyboard hook thread shares the GIL with rendering/transcription —
     # a snappier switch interval keeps system-wide keyboard input responsive.
@@ -98,6 +124,8 @@ def main() -> int:
         run_probe()
         return 0
 
+    _splash("Starting Svara — preparing the audio engine…")
+
     # MUST happen before faster_whisper/ctranslate2 imports:
     from . import cuda_setup
 
@@ -146,25 +174,51 @@ def main() -> int:
         return 0
 
     if not _single_instance():
+        _splash(close=True)
         logging.getLogger(__name__).warning(
             "MyWhisper is already running — this copy will exit. "
             "(Check the tray for the mic icon.)"
         )
+        if getattr(sys, "frozen", False):
+            hk = cfg["recording"].get("hotkey", "right alt")
+            _info_box(
+                "Svara is already running.\n\n"
+                f"Double-tap  {hk}  in any text field and speak — your words "
+                "type at the cursor.\n\n"
+                "To change settings or quit, right-click the round mic icon "
+                "in the system tray (bottom-right, near the clock — it may be "
+                "hidden behind the ^ arrow)."
+            )
         return 0
 
     # First run of the packaged app: show a setup window (welcome + how-to +
     # model chooser) and pre-load the chosen model so the app isn't a silent
-    # mystery while the model downloads.
+    # mystery while the model downloads. Also re-shown to heal a config left
+    # by an older build that pinned a big model to the CPU despite an NVIDIA
+    # GPU being present (unusably slow — 20-30s per utterance).
     transcriber = None
     from .paths import base_dir
     setup_flag = base_dir() / ".svara_ready"
-    if (getattr(sys, "frozen", False) and not setup_flag.exists()
+    stale_cpu_cfg = False
+    try:
+        from .cuda_setup import gpu_present
+        stale_cpu_cfg = (cfg["model"].get("device") == "cpu"
+                         and cfg["model"].get("name") not in ("tiny", "base", "small")
+                         and gpu_present())
+    except Exception:  # noqa: BLE001
+        pass
+    if (getattr(sys, "frozen", False)
+            and (not setup_flag.exists() or stale_cpu_cfg)
             and not args.no_tray and cfg["ui"].get("tray", True)):
+        _splash(close=True)
         try:
             from .setup_ui import run_setup
             model, transcriber = run_setup(cfg, cfg_path)
             if model:
                 cfg["model"]["name"] = model
+                if transcriber is not None:  # setup loaded it on this device
+                    cfg["model"]["device"] = transcriber.device_used
+                    cfg["model"]["compute_type"] = transcriber.compute_used
                 try:
                     setup_flag.write_text("ok", encoding="utf-8")
                 except OSError:
@@ -174,7 +228,9 @@ def main() -> int:
 
     from .app import MyWhisperApp
 
+    _splash(f"Loading the {cfg['model']['name']} speech model…")
     app = MyWhisperApp(cfg, no_tray=args.no_tray, transcriber=transcriber)
+    _splash(close=True)
     app.run()
     return 0
 

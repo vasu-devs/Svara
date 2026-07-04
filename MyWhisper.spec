@@ -54,8 +54,20 @@ _icon = "assets\\icon.ico" if os.path.exists("assets\\icon.ico") else None
 
 if ONEFILE:
     # Single self-contained Svara.exe: download and double-click, no unzip.
+    # The splash shows the moment the exe is double-clicked — the 100+ MB
+    # onefile extraction plus model load would otherwise be a silent minute.
+    splash = Splash(
+        "assets/splash.png",
+        binaries=a.binaries,
+        datas=a.datas,
+        text_pos=(38, 252),
+        text_size=10,
+        text_color="#9a9aa4",
+        text_default="starting…",
+        always_on_top=True,
+    )
     exe = EXE(
-        pyz, a.scripts, a.binaries, a.datas, [],
+        pyz, a.scripts, splash, splash.binaries, a.binaries, a.datas, [],
         name=APP_NAME, console=False,
         disable_windowed_traceback=False, icon=_icon,
     )

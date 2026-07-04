@@ -1,6 +1,23 @@
 # Shipping MyWhisper
 
-## Build the standalone app
+## Build the release Svara.exe (what the site links to)
+
+```bat
+set MYWHISPER_CPU=1
+set MYWHISPER_ONEFILE=1
+.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean MyWhisper.spec
+```
+
+Produces **`dist\Svara.exe`** (~107 MB): a single download-and-run exe with a
+branded splash screen. No CUDA bundled — if an NVIDIA GPU is present, the
+first-run setup downloads `cuda-runtime.zip` (~1.3 GB) from the GitHub release
+on demand. Upload with:
+
+```bat
+gh release upload v0.1.0 dist\Svara.exe --clobber
+```
+
+## Build the standalone folder app
 
 ```bat
 build.bat
