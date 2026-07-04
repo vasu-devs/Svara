@@ -21,6 +21,17 @@ def _single_instance() -> bool:
     return True
 
 
+def _exe_stamp() -> str:
+    """Identity of the running exe (size + mtime). The setup-done flag stores
+    this, so a newly downloaded or updated Svara.exe re-runs first-run setup
+    instead of silently inheriting a stale flag next to it."""
+    try:
+        st = Path(sys.executable).stat()
+        return f"{st.st_size}:{st.st_mtime_ns}"
+    except OSError:
+        return "unknown"
+
+
 def _splash(text: str | None = None, close: bool = False) -> None:
     """Drive the PyInstaller onefile splash screen (no-op in any other build)."""
     try:
@@ -199,6 +210,12 @@ def main() -> int:
     transcriber = None
     from .paths import base_dir
     setup_flag = base_dir() / ".svara_ready"
+    stamp = _exe_stamp()
+    setup_done = False
+    try:
+        setup_done = setup_flag.read_text(encoding="utf-8").strip() == stamp
+    except OSError:
+        pass
     stale_cpu_cfg = False
     try:
         from .cuda_setup import gpu_present
@@ -208,7 +225,7 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         pass
     if (getattr(sys, "frozen", False)
-            and (not setup_flag.exists() or stale_cpu_cfg)
+            and (not setup_done or stale_cpu_cfg)
             and not args.no_tray and cfg["ui"].get("tray", True)):
         _splash(close=True)
         try:
@@ -220,7 +237,7 @@ def main() -> int:
                     cfg["model"]["device"] = transcriber.device_used
                     cfg["model"]["compute_type"] = transcriber.compute_used
                 try:
-                    setup_flag.write_text("ok", encoding="utf-8")
+                    setup_flag.write_text(stamp, encoding="utf-8")
                 except OSError:
                     pass
         except Exception:  # noqa: BLE001 — never let setup block the app

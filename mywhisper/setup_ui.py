@@ -95,6 +95,64 @@ def _plan(cfg):
     return use_gpu, mlist, default
 
 
+def _progress_tqdm(dl):
+    """A tqdm stand-in that feeds byte progress into the shared ``dl`` dict.
+
+    Depending on the hub version/backend there is either one aggregate byte
+    bar (Xet: created with total=0, total assigned later as sizes resolve) or
+    one bar per file — so totals are re-read on every update and summed per
+    bar. Downloads run in worker threads, hence the lock.
+    """
+    from tqdm.auto import tqdm as _tqdm
+
+    lock = threading.Lock()
+    totals: dict = {}  # id(bar) -> last known byte total
+
+    class _Tqdm(_tqdm):
+        def __init__(self, *a, **k):
+            k["disable"] = True  # never render — we only want the numbers
+            self._bytes = k.get("unit") == "B"
+            super().__init__(*a, **k)
+
+        def update(self, n=1):
+            if not self._bytes:
+                return
+            with lock:
+                if n:
+                    dl["done"] += n
+                totals[id(self)] = max(totals.get(id(self), 0), self.total or 0)
+                dl["total"] = sum(totals.values())
+
+    return _Tqdm
+
+
+def _download_model(model: str, mcfg: dict, dl) -> None:
+    """Fetch the model from Hugging Face with real byte progress (idempotent —
+    cached files are skipped). faster_whisper's own downloader hardcodes a
+    disabled tqdm, so we replicate its snapshot_download call with ours; if
+    this fails, WhisperModel simply downloads it itself (no progress)."""
+    try:
+        # The Xet backend only reports progress at large chunk boundaries —
+        # the bar would freeze for a minute at a time on a 1.5 GB model. The
+        # classic HTTP path streams smooth per-chunk updates. (Must be set
+        # before huggingface_hub is first imported in this process.)
+        os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+        import huggingface_hub
+        from faster_whisper.utils import _MODELS
+
+        kwargs = {
+            "allow_patterns": ["config.json", "preprocessor_config.json",
+                               "model.bin", "tokenizer.json", "vocabulary.*"],
+            "tqdm_class": _progress_tqdm(dl),
+        }
+        if mcfg.get("download_root"):
+            kwargs["cache_dir"] = mcfg["download_root"]
+        huggingface_hub.snapshot_download(_MODELS.get(model, model), **kwargs)
+    except Exception:  # noqa: BLE001
+        log.debug("model pre-download failed — Transcriber will fetch it",
+                  exc_info=True)
+
+
 def _load_model(cfg, cfg_path, model, use_gpu, dl):
     from . import cuda_setup as cuda
     if use_gpu:
@@ -107,10 +165,12 @@ def _load_model(cfg, cfg_path, model, use_gpu, dl):
         dev, comp = "cuda", "int8_float16"
     else:
         dev, comp = "cpu", "int8"
-    dl["phase"] = "model"
     _apply_config(cfg_path, model, dev, comp)
     mcfg = dict(cfg["model"])
     mcfg.update(name=model, device=dev, compute_type=comp)
+    dl.update(phase="model_dl", done=0, total=0)
+    _download_model(model, mcfg, dl)
+    dl["phase"] = "model"
     from .transcriber import Transcriber
     return Transcriber(mcfg)
 
@@ -281,7 +341,10 @@ def _run_setup_ctk(cfg, cfg_path):
             root.destroy()
 
         finish.configure(command=_finish)
-        root.bind("<Return>", lambda e: _finish())
+        # Enter must NOT close the window — it belongs to the test textbox.
+        # (The setup screen bound it to _start; drop that binding entirely so
+        # nothing closes or restarts unless the user clicks Finish or ✕.)
+        root.unbind("<Return>")
         root.protocol("WM_DELETE_WINDOW", _finish)
 
     # ------------------------------------------------------------------ #
@@ -370,16 +433,27 @@ def _run_setup_ctk(cfg, cfg_path):
             status.configure(
                 text=f"⬇  Downloading GPU support…   {dl['done'] >> 20} / {dl['total'] >> 20} MB   ·   {int(frac * 100)}%",
                 text_color=ACCENT)
+        elif dl["phase"] == "model_dl" and dl["total"]:
+            frac = dl["done"] / dl["total"]
+            try:
+                prog.configure(mode="determinate"); prog.set(frac)
+            except Exception:  # noqa: BLE001
+                pass
+            status.configure(
+                text=f"⬇  Downloading the {choice['value']} model…   {dl['done'] >> 20} / {dl['total'] >> 20} MB   ·   {int(frac * 100)}%",
+                text_color=ACCENT)
         elif dl["phase"] == "model":
             try:
                 prog.configure(mode="indeterminate")
                 prog.start()
             except Exception:  # noqa: BLE001
                 pass
-            status.configure(text=f"✓ GPU ready — loading the {choice['value']} model…", text_color=SUB)
+            status.configure(text=f"✓ Downloaded — loading the {choice['value']} model…", text_color=SUB)
         root.after(120, _poll)
 
     def _start():
+        if btn.cget("state") == "disabled":  # Enter while already setting up
+            return
         model = choice["value"]
         btn.configure(state="disabled", text="Setting up…")
         prog.pack(fill="x", pady=(10, 0), before=status)
@@ -483,7 +557,17 @@ def _run_setup_tk(cfg, cfg_path):
 
     def _poll():
         if result["transcriber"] is not None:
-            root.destroy(); return
+            # Ready — hand the window to the user; only they close it.
+            try:
+                prog.stop(); prog.pack_forget()
+            except Exception:  # noqa: BLE001
+                pass
+            hk = cfg["recording"].get("hotkey", "right alt")
+            status.config(text=f"✓ Ready — double-tap  {hk}  in any text field "
+                               "and speak. Click Finish to close this window.", fg=FG)
+            root.unbind("<Return>")  # Enter must not restart setup
+            btn.config(state="normal", text="Finish", command=root.destroy)
+            return
         if result["error"] is not None:
             try:
                 prog.stop(); prog.pack_forget()
@@ -493,6 +577,9 @@ def _run_setup_tk(cfg, cfg_path):
             btn.config(state="normal", text="Try again"); return
         if dl["phase"] == "cuda" and dl["total"]:
             status.config(text=f"Downloading GPU support… {dl['done'] >> 20}/{dl['total'] >> 20} MB", fg=FG)
+        elif dl["phase"] == "model_dl" and dl["total"]:
+            status.config(text=f"Downloading the {choice['value']} model… "
+                               f"{dl['done'] >> 20}/{dl['total'] >> 20} MB", fg=FG)
         elif dl["phase"] == "model":
             status.config(text=f"Loading the {choice['value']} model…", fg=FG)
         root.after(250, _poll)
