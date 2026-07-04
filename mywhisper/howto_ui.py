@@ -106,9 +106,9 @@ def _build(root, app, first_run=False):
     root.configure(bg=BG)
     W = 560
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    H = min(680, sh - 90)
+    H = min(760, sh - 90)
     root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
-    root.minsize(480, 520)
+    root.minsize(480, 600)
     root.deiconify()
     try:
         root.attributes("-topmost", True)
@@ -171,33 +171,68 @@ def _build(root, app, first_run=False):
         tk.Label(row, text="  " + b, bg=CARD, fg=FG,
                  font=("Segoe UI", 11)).pack(side="left")
 
-    # --- language picker (applies live, persists) ---
-    lrow = tk.Frame(root, bg=BG)
-    lrow.pack(fill="x", padx=26, pady=(12, 0))
-    tk.Label(lrow, text="Language", bg=BG, fg=SUB,
-             font=("Segoe UI", 9, "bold")).pack(side="left")
-    if getattr(app, "is_multilingual", True):
-        cur = app.current_language
-        labels = {code: label for code, label in LANGS}
-        var = tk.StringVar(value=labels.get(cur, "Auto-detect"))
+    # --- settings: everything the tray offers, also reachable right here —
+    # this window (opened by double-clicking Svara.exe again) is how most
+    # people actually find their way back in, so "change my model" must not
+    # require ever discovering the tray icon. ---
+    settings = tk.Frame(root, bg=BG)
+    settings.pack(fill="x", padx=26, pady=(12, 0))
+
+    def _dropdown_row(parent, label_text, options, current, on_pick, hint=None):
+        """A labeled OptionMenu row, styled like the rest of this window.
+        options: [(value, label), ...]. current: the value to preselect."""
+        row = tk.Frame(parent, bg=BG)
+        row.pack(fill="x", pady=3)
+        tk.Label(row, text=label_text, bg=BG, fg=SUB, width=9, anchor="w",
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        labels = {v: lbl for v, lbl in options}
+        var = tk.StringVar(value=labels.get(current, options[0][1]))
 
         def _pick(label):
-            code = next((c for c, lbl in LANGS if lbl == label), None)
-            app.set_language(code)
+            value = next((v for v, lbl in options if lbl == label), None)
+            on_pick(value)
 
-        opt = tk.OptionMenu(lrow, var, *[lbl for _c, lbl in LANGS], command=_pick)
+        opt = tk.OptionMenu(row, var, *[lbl for _v, lbl in options], command=_pick)
         opt.configure(bg=CARD, fg=FG, activebackground=CARD,
                       activeforeground=ACCENT, highlightthickness=0, bd=0,
                       font=("Segoe UI", 10), indicatoron=True)
         opt["menu"].configure(bg=CARD, fg=FG, activebackground=CARD_ON,
                               activeforeground=ACCENT, bd=0)
         opt.pack(side="left", padx=(10, 0))
-        tk.Label(lrow, text="Auto-detect just works — pick one to lock it.",
-                 bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
-                                                           padx=(10, 0))
+        if hint:
+            tk.Label(row, text=hint, bg=BG, fg=SUB,
+                     font=("Segoe UI", 9)).pack(side="left", padx=(10, 0))
+        return var
+
+    from .setup_ui import MODELS
+
+    _dropdown_row(
+        settings, "Model",
+        [(value, name) for value, name, _sub in MODELS],
+        cfg["model"]["name"], app.set_model)
+
+    device_opts = [("cpu", "CPU")]
+    if getattr(app, "gpu_available", False):
+        device_opts.append(("cuda", "GPU (NVIDIA)"))
+    _dropdown_row(settings, "Device", device_opts,
+                 app.transcriber.device_used, app.set_device)
+
+    _dropdown_row(
+        settings, "Streaming",
+        [("live", "Live"), ("preview", "Preview"), ("off", "Off")],
+        cfg["streaming"]["mode"], app.set_streaming_mode)
+
+    if getattr(app, "is_multilingual", True):
+        cur = app.current_language
+        _dropdown_row(settings, "Language", LANGS, cur, app.set_language,
+                     hint="auto-detect just works — pick one to lock it")
     else:
-        tk.Label(lrow, text="English (this model is English-tuned — switch to "
-                            "the multilingual model in the tray for more)",
+        row = tk.Frame(settings, bg=BG)
+        row.pack(fill="x", pady=3)
+        tk.Label(row, text="Language", bg=BG, fg=SUB, width=9, anchor="w",
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        tk.Label(row, text="English (this model is English-tuned — pick "
+                          "\"Large v3 Turbo\" above for 90+ languages)",
                  bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
                                                            padx=(10, 0))
 
@@ -207,13 +242,14 @@ def _build(root, app, first_run=False):
              ).pack(fill="x", padx=26, pady=(14, 4))
     box = tk.Text(root, bg=CARD, fg=FG, insertbackground=ACCENT,
                   relief="flat", font=("Segoe UI", 12), wrap="word",
-                  padx=12, pady=10, height=6)
+                  padx=12, pady=10, height=4)
     box.pack(fill="both", expand=True, padx=26)
 
     foot = tk.Frame(root, bg=BG)
     foot.pack(fill="x", padx=26, pady=(10, 16))
-    tk.Label(foot, text=f"Model: {app.model_label}   ·   themes, pause and quit "
-                        "live in the tray icon (near the clock)",
+    from . import __version__
+    tk.Label(foot, text=f"Svara v{__version__}  ·  {app.model_label}  ·  "
+                        "more in the tray icon (near the clock)",
              bg=BG, fg=SUB, font=("Segoe UI", 9), anchor="w",
              wraplength=W - 150, justify="left").pack(side="left", fill="x",
                                                       expand=True)

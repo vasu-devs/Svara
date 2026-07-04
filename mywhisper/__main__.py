@@ -22,14 +22,19 @@ def _single_instance() -> bool:
 
 
 def _exe_stamp() -> str:
-    """Identity of the running exe (size + mtime). The setup-done flag stores
-    this, so a newly downloaded or updated Svara.exe re-runs first-run setup
-    instead of silently inheriting a stale flag next to it."""
+    """Identity of the running exe (app version + size + mtime). The
+    setup-done flag stores this, so a newly downloaded or updated Svara.exe
+    re-runs first-run setup instead of silently inheriting a stale flag next
+    to it. The version is included as a belt-and-suspenders check: size+mtime
+    alone can coincidentally match if a stale/duplicate exe from an old
+    download gets run again (multiple "Svara (2).exe"-style copies pile up in
+    a Downloads folder) — a version bump always forces setup to re-run."""
+    from . import __version__
     try:
         st = Path(sys.executable).stat()
-        return f"{st.st_size}:{st.st_mtime_ns}"
+        return f"{__version__}:{st.st_size}:{st.st_mtime_ns}"
     except OSError:
-        return "unknown"
+        return f"{__version__}:unknown"
 
 
 def _splash(text: str | None = None, close: bool = False) -> None:
@@ -222,6 +227,10 @@ def main() -> int:
             )
         return 0
 
+    if getattr(sys, "frozen", False):
+        from .shortcuts import ensure_start_menu_shortcut
+        ensure_start_menu_shortcut()
+
     # First run of the packaged app: show a setup window (welcome + how-to +
     # model chooser) and pre-load the chosen model so the app isn't a silent
     # mystery while the model downloads. Also re-shown to heal a config left
@@ -233,10 +242,15 @@ def main() -> int:
     setup_flag = base_dir() / ".svara_ready"
     stamp = _exe_stamp()
     setup_done = False
+    prev_stamp = None
     try:
-        setup_done = setup_flag.read_text(encoding="utf-8").strip() == stamp
+        prev_stamp = setup_flag.read_text(encoding="utf-8").strip()
+        setup_done = prev_stamp == stamp
     except OSError:
         pass
+    logging.getLogger(__name__).debug(
+        "setup check: this run=%s | flag on disk=%s | match=%s",
+        stamp, prev_stamp, setup_done)
     # CPU-viable models: setup_ui._CPU_OK plus legacy ids from older installs
     # (not imported: that module pulls tkinter). The heal only targets big
     # models stranded on the CPU of a GPU machine.
