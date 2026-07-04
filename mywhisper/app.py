@@ -12,7 +12,6 @@ import queue
 import sys
 import threading
 import time
-from pathlib import Path
 
 import numpy as np
 
@@ -132,6 +131,18 @@ class MyWhisperApp:
         self.paused = not self.paused
         log.info("Paused" if self.paused else "Resumed")
 
+    def _refresh_tray(self):
+        """pystray only rebuilds its native menu after one of ITS OWN item
+        clicks fires (or at startup) — a change made from the Svara window
+        never runs through that path, so the tray would keep showing stale
+        checked-state/text until the user happened to click some unrelated
+        tray item. Call this after any out-of-band state change."""
+        if self.tray and self.tray.icon:
+            try:
+                self.tray.icon.update_menu()
+            except Exception:  # noqa: BLE001
+                pass
+
     # -- model switching -------------------------------------------------------
 
     @property
@@ -149,6 +160,16 @@ class MyWhisperApp:
         Dictation keeps working on the old model until the new one is ready."""
         if self._model_switch or value == self.cfg["model"]["name"]:
             return
+        if self.recorder.recording:
+            # A live switch mid-utterance would hand the streamer/worker a
+            # different model than the one whose partial-word hypothesis
+            # they're already mid-way through aligning against — garbled or
+            # duplicated text, silently. Simplest safe rule: finish first.
+            if self.tray:
+                self.tray.notify("Finish this dictation first, then switch "
+                                 "models — mid-recording switches can garble "
+                                 "the live text.")
+            return
         self._model_switch = True
 
         def work():
@@ -160,6 +181,15 @@ class MyWhisperApp:
                 name = display_name(value)
                 dev = self.transcriber.device_used
                 comp = self.transcriber.compute_used
+                # A GPU-tier model with no GPU present would otherwise load
+                # silently on CPU (tens of seconds per utterance) — exactly
+                # what the CPU-first default was chosen to avoid.
+                if value not in _CPU_OK and not cuda.gpu_present():
+                    if self.tray:
+                        self.tray.notify(
+                            f"{name} needs an NVIDIA GPU, which this machine "
+                            "doesn't have — staying on the current model.")
+                    return
                 # Upgrading to a big model on a GPU machine still running CPU:
                 # fetch the CUDA runtime so the upgrade actually delivers.
                 if (value not in _CPU_OK and dev == "cpu"
@@ -180,6 +210,8 @@ class MyWhisperApp:
                 new = Transcriber(mcfg)  # loads + warms up
                 self.transcriber = new
                 self.cfg["model"]["name"] = value
+                self.cfg["model"]["device"] = new.device_used
+                self.cfg["model"]["compute_type"] = new.compute_used
                 _apply_config(ensure_config(), value, new.device_used,
                               new.compute_used)
                 if self.tray:
@@ -194,6 +226,7 @@ class MyWhisperApp:
                                      "See logs/mywhisper.log")
             finally:
                 self._model_switch = False
+                self._refresh_tray()
 
         threading.Thread(target=work, daemon=True, name="model-switch").start()
 
@@ -210,6 +243,12 @@ class MyWhisperApp:
         """Switch the CURRENT model to run on cpu or cuda, live from the tray.
         Downloads the CUDA runtime on first switch to GPU if needed."""
         if self._model_switch or device == self.transcriber.device_used:
+            return
+        if self.recorder.recording:
+            if self.tray:
+                self.tray.notify("Finish this dictation first, then switch "
+                                 "devices — mid-recording switches can garble "
+                                 "the live text.")
             return
         self._model_switch = True
 
@@ -261,6 +300,7 @@ class MyWhisperApp:
                                      "See logs/mywhisper.log")
             finally:
                 self._model_switch = False
+                self._refresh_tray()
 
         threading.Thread(target=work, daemon=True, name="device-switch").start()
 
@@ -271,6 +311,7 @@ class MyWhisperApp:
         · off = classic batch. Takes effect on the next recording, persists."""
         self.cfg["streaming"]["mode"] = mode
         self._save_state(streaming_mode=mode)
+        self._refresh_tray()
         log.info("streaming → %s", mode)
 
     # -- language ------------------------------------------------------------
@@ -282,8 +323,16 @@ class MyWhisperApp:
 
     def set_language(self, code):
         """Switch the transcription language live (None = auto-detect)."""
+        # transcriber.cfg is its OWN dict (setup_ui builds a fresh copy of
+        # cfg["model"] to construct it) — writing only there meant the next
+        # set_model()/set_device() would rebuild from the original, still-
+        # stale cfg["model"] and silently revert the language just picked.
+        # cfg["model"] is the source of truth; keep the live transcriber in
+        # sync too so the change takes effect immediately, not just later.
+        self.cfg["model"]["language"] = code
         self.transcriber.cfg["language"] = code
         self._save_state(language=code or "auto")
+        self._refresh_tray()
         log.info("language → %s", code or "auto-detect")
 
     # -- the Svara window (how-to + live test + language) ---------------------

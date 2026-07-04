@@ -191,14 +191,21 @@ def _load_model(cfg, cfg_path, model, use_gpu, dl):
         dev, comp = "cuda", "int8_float16"
     else:
         dev, comp = "cpu", "int8"
-    _apply_config(cfg_path, model, dev, comp)
     mcfg = dict(cfg["model"])
     mcfg.update(name=model, device=dev, compute_type=comp)
     dl.update(phase="model_dl", done=0, total=0)
     _download_model(model, mcfg, dl)
     dl["phase"] = "model"
     from .transcriber import Transcriber
-    return Transcriber(mcfg)
+    transcriber = Transcriber(mcfg)  # may silently fall back to cpu internally
+    # Write the ACTUAL outcome, not the plan — Transcriber's own fallback
+    # ladder can quietly land on cpu/int8 even when use_gpu was true (e.g.
+    # a CUDA/cuDNN mismatch that only surfaces during kernel init), and
+    # writing the planned cuda/int8_float16 here would leave config.yaml
+    # permanently claiming a device that doesn't actually work — every
+    # future launch would retry and fail CUDA before falling back, forever.
+    _apply_config(cfg_path, model, transcriber.device_used, transcriber.compute_used)
+    return transcriber
 
 
 # --------------------------------------------------------------------------- #

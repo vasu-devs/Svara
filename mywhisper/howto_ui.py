@@ -204,18 +204,50 @@ def _build(root, app, first_run=False):
                      font=("Segoe UI", 9)).pack(side="left", padx=(10, 0))
         return var
 
-    from .setup_ui import MODELS
+    from .setup_ui import _CPU_OK, MODELS
 
+    # Model/Device switches run in a background thread (app.py) — the
+    # Language row (and the Device row's own value) can go stale for the
+    # whole switch otherwise, since nothing here would know it settled.
+    # app._model_switch flips True synchronously before the thread starts,
+    # so polling it is a reliable "has it finished yet" signal; once it
+    # clears, rebuild the window fresh (same path show_howto() itself
+    # uses) so every row reflects the model that's now actually running.
+    def _watch_switch_and_refresh():
+        if not root.winfo_exists():
+            return
+        if getattr(app, "_model_switch", False):
+            root.after(400, _watch_switch_and_refresh)
+        elif root.state() != "withdrawn":
+            # Only rebuild if the user hasn't already closed this window —
+            # forcing it back open just to show settled state would be its
+            # own annoyance. The next real show_howto() call rebuilds fresh
+            # regardless, so a closed window never actually shows stale data.
+            _build(root, app, first_run=False)
+
+    def _pick_model(value):
+        app.set_model(value)
+        _watch_switch_and_refresh()
+
+    def _pick_device(value):
+        app.set_device(value)
+        _watch_switch_and_refresh()
+
+    # Same rule as the tray and first-run setup: don't offer a GPU-only
+    # model on a machine with no GPU to run it on — it would silently
+    # load on CPU instead (tens of seconds per utterance).
+    offered_models = MODELS if getattr(app, "gpu_available", False) else [
+        m for m in MODELS if m[0] in _CPU_OK]
     _dropdown_row(
         settings, "Model",
-        [(value, name) for value, name, _sub in MODELS],
-        cfg["model"]["name"], app.set_model)
+        [(value, name) for value, name, _sub in offered_models],
+        cfg["model"]["name"], _pick_model)
 
     device_opts = [("cpu", "CPU")]
     if getattr(app, "gpu_available", False):
         device_opts.append(("cuda", "GPU (NVIDIA)"))
     _dropdown_row(settings, "Device", device_opts,
-                 app.transcriber.device_used, app.set_device)
+                 app.transcriber.device_used, _pick_device)
 
     _dropdown_row(
         settings, "Streaming",

@@ -108,7 +108,13 @@ class Tray:
             return pystray.MenuItem(label, action, checked=is_checked, radio=True)
 
         from .howto_ui import LANGS
-        from .setup_ui import MODELS
+        from .setup_ui import _CPU_OK, MODELS
+
+        # A GPU-only model would otherwise silently load on CPU (tens of
+        # seconds per utterance) if picked here — matching setup's own
+        # _plan(), don't even offer it when there's no GPU to run it on.
+        offered_models = MODELS if app.gpu_available else [
+            m for m in MODELS if m[0] in _CPU_OK]
 
         menu = pystray.Menu(
             pystray.MenuItem(
@@ -124,7 +130,7 @@ class Tray:
             ),
             pystray.MenuItem(
                 "Model",
-                pystray.Menu(*[model_item(*m) for m in MODELS]),
+                pystray.Menu(*[model_item(*m) for m in offered_models]),
             ),
             pystray.MenuItem(
                 "Device",

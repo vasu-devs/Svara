@@ -10,9 +10,9 @@ log = logging.getLogger(__name__)
 
 DEFAULTS: dict = {
     "model": {
-        "name": "large-v3-turbo",       # tiny | base | small | medium | large-v3 | large-v3-turbo
-        "device": "cuda",               # cuda | cpu | auto
-        "compute_type": "int8_float16", # GPU: int8_float16 (~1.5GB) or float16; CPU: int8
+        "name": "base.en",              # ANY Whisper model or HF CT2 repo id (see config.yaml)
+        "device": "cpu",                # cuda | cpu | auto (setup switches GPU machines to cuda)
+        "compute_type": "int8",         # GPU: int8_float16 (~1.5GB) or float16; CPU: int8
         "language": "en",               # ISO code, or null for auto-detect
         "beam_size": 2,                 # final-pass beam: 2 = good, 1 = fastest, 5 = default
         "partial_beam_size": 2,         # live streaming beam: 2 balances speed + accuracy
@@ -20,8 +20,8 @@ DEFAULTS: dict = {
         "download_root": None,          # None = default HuggingFace cache
     },
     "recording": {
-        "mode": "press_to_toggle",      # press_to_toggle | hold_to_record
-        "hotkey": "ctrl+shift+space",   # combo toggle; single keys ("f8") get long-press behavior
+        "mode": "hold_to_record",       # hold_to_record | press_to_toggle
+        "hotkey": "right alt",          # single keys get long-press behavior; combos toggle
         "long_press_ms": 250,           # (single-key hold mode) shorter = tap (cancel)
         "double_tap_lock": True,        # (single-key hold mode) double-tap = hands-free lock
         "double_tap_ms": 400,
@@ -62,10 +62,10 @@ DEFAULTS: dict = {
         },
     },
     "streaming": {
-        "mode": "preview",              # off | preview (live text in the pill)
-                                        # | live (types words in real time as you speak)
-        "interval_ms": 300,             # how often to re-transcribe while recording
-        "min_audio_s": 0.5,             # don't start until this much audio exists
+        "mode": "live",                 # live (types words in real time as you speak)
+                                        # | preview (live text in the pill) | off
+        "interval_ms": 180,             # how often to re-transcribe while recording
+        "min_audio_s": 0.35,            # don't start until this much audio exists
     },
     "audio": {
         "sample_rate": 16000,

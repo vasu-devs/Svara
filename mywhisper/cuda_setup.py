@@ -48,7 +48,6 @@ def cuda_available() -> bool:
 def download_cuda(progress=None) -> bool:
     """Download + extract the CUDA runtime next to the exe. progress(done,total).
     Returns True on success. Safe to call again if it fails partway."""
-    import tempfile
     import urllib.request
     import zipfile
 
