@@ -49,13 +49,16 @@ def display_name(model: str) -> str:
     """Human label for a model id (repo ids are ugly in UI text)."""
     return _NAMES.get(model, model.split("/")[-1])
 
-BG = "#0a0a0c"
-CARD = "#17171c"
-CARD_ON = "#0f2028"
-FG = "#f2f2f4"
-SUB = "#9a9aa4"
-ACCENT = "#22d3ee"
-ACCENT_HOVER = "#4fe0f2"
+# "Ink on paper" palette — matches the website's default Sienna mood.
+BG = "#e7d2be"           # paper
+CARD = "#f6ebdf"         # panel — a warm cream card on the paper
+CARD_ON = "#f0d3bd"      # selected-card tint (accent wash over the card)
+FG = "#2c2620"           # ink
+SUB = "#807367"          # faded ink (secondary text)
+ACCENT = "#c1573a"       # sienna
+ACCENT_HOVER = "#e08a5e"
+BTN_TEXT = "#f7f2ea"     # cream text on an accent-filled button
+ERROR = "#b23b2e"
 
 
 def _asset(name: str) -> str | None:
@@ -83,7 +86,7 @@ def _apply_config(cfg_path, model: str, device: str, compute: str) -> None:
 
 def _make_wave_frames(w: int, h: int, n: int):
     from PIL import Image, ImageDraw
-    cols = [(255, 95, 162), (139, 92, 246), (34, 211, 238)]
+    cols = [(224, 138, 94), (193, 87, 58), (143, 58, 38)]  # sienna mood
     mid = h / 2
     frames = []
     for f in range(n):
@@ -259,7 +262,7 @@ def _run_setup_ctk(cfg, cfg_path):
     action = ctk.CTkFrame(root, fg_color="transparent")
     action.pack(side="bottom", fill="x", padx=26, pady=(6, 20))
     btn = ctk.CTkButton(action, text="Start Svara", height=48, corner_radius=12,
-                        fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#06181d",
+                        fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color=BTN_TEXT,
                         font=ctk.CTkFont(size=16, weight="bold"))
     btn.pack(fill="x")
     prog = ctk.CTkProgressBar(action, mode="indeterminate", progress_color=ACCENT,
@@ -287,11 +290,11 @@ def _run_setup_ctk(cfg, cfg_path):
         row = ctk.CTkFrame(howf, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(row, text=a, text_color=ACCENT, font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-        ctk.CTkLabel(row, text="  " + bb, text_color="#dcdce0", font=ctk.CTkFont(size=13)).pack(side="left")
+        ctk.CTkLabel(row, text="  " + bb, text_color=FG, font=ctk.CTkFont(size=13)).pack(side="left")
     ctk.CTkLabel(head, text="CHOOSE A MODEL", text_color=SUB,
                  font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", pady=(16, 2))
 
-    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent", scrollbar_button_color="#2a2a30")
+    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent", scrollbar_button_color="#cbb79f")
     scroll.pack(side="top", fill="both", expand=True, padx=20)
 
     choice = {"value": default}
@@ -330,7 +333,7 @@ def _run_setup_ctk(cfg, cfg_path):
                 prog.stop(); prog.pack_forget()
             except Exception:  # noqa: BLE001
                 pass
-            status.configure(text=f"Setup failed: {result['error']}", text_color="#ff7a7a")
+            status.configure(text=f"Setup failed: {result['error']}", text_color=ERROR)
             btn.configure(state="normal", text="Try again")
             return
         if dl["phase"] == "cuda" and dl["total"]:
@@ -420,7 +423,7 @@ def _run_setup_tk(cfg, cfg_path):
             pass
     outer = tk.Frame(root, bg=BG); outer.pack(fill="both", expand=True)
     action = tk.Frame(outer, bg=BG); action.pack(side="bottom", fill="x", padx=26, pady=(10, 18))
-    btn = tk.Button(action, text="Start Svara", bg=ACCENT, fg="#06181d",
+    btn = tk.Button(action, text="Start Svara", bg=ACCENT, fg=BTN_TEXT,
                     font=("Segoe UI Semibold", 13), bd=0, padx=20, pady=11, cursor="hand2")
     btn.pack(fill="x")
     prog = ttk.Progressbar(action, mode="indeterminate", length=W - 52)
@@ -473,7 +476,7 @@ def _run_setup_tk(cfg, cfg_path):
                 prog.stop(); prog.pack_forget()
             except Exception:  # noqa: BLE001
                 pass
-            status.config(text=f"Setup failed: {result['error']}", fg="#ff6b6b")
+            status.config(text=f"Setup failed: {result['error']}", fg=ERROR)
             btn.config(state="normal", text="Try again"); return
         if dl["phase"] == "cuda" and dl["total"]:
             status.config(text=f"Downloading GPU support… {dl['done'] >> 20}/{dl['total'] >> 20} MB", fg=FG)

@@ -14,13 +14,9 @@ itself — only the user closes it.
 import logging
 import threading
 
-log = logging.getLogger(__name__)
+from .setup_ui import ACCENT, BG, BTN_TEXT, CARD, CARD_ON, FG, SUB
 
-BG = "#0a0a0c"
-CARD = "#17171c"
-FG = "#f2f2f4"
-SUB = "#9a9aa4"
-ACCENT = "#22d3ee"
+log = logging.getLogger(__name__)
 
 # (whisper language code | None = auto-detect, label)
 LANGS = [
@@ -148,7 +144,7 @@ def _build(app, first_run=False):
         row.pack(fill="x", padx=14, pady=5)
         tk.Label(row, text=n + a, bg=CARD, fg=ACCENT,
                  font=("Segoe UI Semibold", 11)).pack(side="left")
-        tk.Label(row, text="  " + b, bg=CARD, fg="#dcdce0",
+        tk.Label(row, text="  " + b, bg=CARD, fg=FG,
                  font=("Segoe UI", 11)).pack(side="left")
 
     # --- language picker (applies live, persists) ---
@@ -169,7 +165,7 @@ def _build(app, first_run=False):
         opt.configure(bg=CARD, fg=FG, activebackground=CARD,
                       activeforeground=ACCENT, highlightthickness=0, bd=0,
                       font=("Segoe UI", 10), indicatoron=True)
-        opt["menu"].configure(bg=CARD, fg=FG, activebackground="#0f2028",
+        opt["menu"].configure(bg=CARD, fg=FG, activebackground=CARD_ON,
                               activeforeground=ACCENT, bd=0)
         opt.pack(side="left", padx=(10, 0))
         tk.Label(lrow, text="Auto-detect just works — pick one to lock it.",
@@ -198,7 +194,7 @@ def _build(app, first_run=False):
              wraplength=W - 150, justify="left").pack(side="left", fill="x",
                                                       expand=True)
     tk.Button(foot, text="Finish  →" if first_run else "Close",
-              bg=ACCENT, fg="#06181d",
+              bg=ACCENT, fg=BTN_TEXT,
               font=("Segoe UI Semibold", 10), bd=0, padx=22, pady=7,
               cursor="hand2", command=root.destroy).pack(side="right")
 

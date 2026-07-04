@@ -1,26 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { Plus_Jakarta_Sans, JetBrains_Mono } from "next/font/google";
+import { Playfair_Display, Hanken_Grotesk, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-const sans = Plus_Jakarta_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700", "800"], variable: "--font-sans", display: "swap" });
+const serif = Playfair_Display({ subsets: ["latin"], weight: ["400", "500", "600", "700"], style: ["normal", "italic"], variable: "--font-serif", display: "swap" });
+const sans = Hanken_Grotesk({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-sans", display: "swap" });
 const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-mono", display: "swap" });
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || "https://vasu-devs.github.io/Svara"),
-  title: "Svara · Speak. It's written. On your own machine.",
-  description: "Svara floats over any app and writes down what you say, live, on your own GPU. Local, free, private voice dictation for Windows.",
+  title: "Svara · Your voice, written like a melody.",
+  description: "Svara transcribes in real time, entirely on your machine. No uploads. No servers. No fees. Local, free, private voice dictation for Windows.",
   icons: { icon: "/favicon.svg" },
   openGraph: {
-    title: "Svara · Speak. It's written.",
-    description: "A voice-dictation overlay that writes your words at the cursor, in any app. Nothing leaves your GPU.",
+    title: "Svara · Your voice, written like a melody.",
+    description: "Double-tap a key and speak. Svara transcribes in real time, entirely on your machine.",
     images: ["/og.svg"], type: "website",
   },
 };
-export const viewport: Viewport = { themeColor: "#050506" };
+export const viewport: Viewport = { themeColor: "#e7d2be" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable}`}>
       <body>{children}</body>
     </html>
   );
