@@ -1,9 +1,10 @@
-"""First-run setup: welcome → model + auto-GPU → animated download → try-it test.
+"""First-run setup: welcome → model + auto-GPU → animated downloads → handoff.
 
 Auto-detects an NVIDIA GPU. If present, offers every model and downloads the
 CUDA runtime once (~1.3 GB, animated progress) so the app runs on the GPU.
-After the model loads, it shows a live "try it" screen with a textbox so the
-user can double-tap/hold Right Alt and confirm dictation works before finishing.
+When the model is loaded the window closes and the caller starts the real app,
+which immediately opens the "You're all set" window (howto_ui) — the live test
+there runs the production pipeline: pill overlay + streaming words.
 
 run_setup() returns (model_name, transcriber) — a ready Transcriber — or
 (None, None) if the window was closed.
@@ -253,123 +254,6 @@ def _run_setup_ctk(cfg, cfg_path):
         return lbl
 
     # ------------------------------------------------------------------ #
-    #  "Try it now" screen — shown once the model is loaded              #
-    # ------------------------------------------------------------------ #
-    def _show_test():
-        model = result["model"] or choice["value"]
-        transcriber = result["transcriber"]
-        for w in root.winfo_children():
-            w.destroy()
-
-        hk_name = cfg["recording"].get("hotkey", "right alt")
-
-        head = ctk.CTkFrame(root, fg_color="transparent")
-        head.pack(side="top", fill="x", padx=26, pady=(20, 0))
-        b = _strings_banner(head, W - 52, 50, delay=120)
-        if b:
-            b.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(head, text="You're all set ✓", text_color=FG,
-                     font=ctk.CTkFont(size=26, weight="bold"), anchor="w").pack(fill="x")
-        ctk.CTkLabel(head, text=f"Double-tap  or  hold  {hk_name}  and speak — try it right here.",
-                     text_color=SUB, font=ctk.CTkFont(size=13), anchor="w").pack(fill="x", pady=(2, 2))
-        live = ctk.CTkLabel(head, text="", text_color=ACCENT,
-                            font=ctk.CTkFont(size=12, weight="bold"), anchor="w")
-        live.pack(fill="x", pady=(4, 8))
-
-        box = ctk.CTkTextbox(root, fg_color=CARD, border_color="#26262d", border_width=1,
-                             corner_radius=14, text_color=FG, font=ctk.CTkFont(size=15),
-                             wrap="word")
-        box.pack(side="top", fill="both", expand=True, padx=26, pady=(0, 12))
-
-        action = ctk.CTkFrame(root, fg_color="transparent")
-        action.pack(side="bottom", fill="x", padx=26, pady=(0, 20))
-        finish = ctk.CTkButton(action, text="Finish  →", height=46, corner_radius=12,
-                               fg_color=ACCENT, hover_color=ACCENT_HOVER, text_color="#06181d",
-                               font=ctk.CTkFont(size=15, weight="bold"))
-        finish.pack(fill="x")
-
-        # --- scoped mini dictation loop (record → transcribe → type in box) ---
-        state = {"rec": None, "hk": None}
-        try:
-            from .audio import Recorder
-            from .hotkey import create_listener
-            rec = Recorder(cfg["audio"], cfg["recording"])
-            rec.open()
-            state["rec"] = rec
-
-            def _set_live(txt):
-                if live.winfo_exists():
-                    live.configure(text=txt)
-
-            def on_start():
-                try:
-                    rec.start()
-                    root.after(0, lambda: _set_live("●  Listening…"))
-                except Exception:  # noqa: BLE001
-                    pass
-
-            def _do(audio):
-                try:
-                    segs = transcriber.transcribe(audio)
-                    text = " ".join(t for t, _, _ in segs).strip()
-                except Exception:  # noqa: BLE001
-                    text = ""
-                root.after(0, lambda: _set_live(""))
-                if text:
-                    root.after(0, lambda: (box.insert("end", text + " "), box.see("end"),
-                                           box.focus_set()))
-
-            def on_commit():
-                try:
-                    audio = rec.stop()
-                except Exception:  # noqa: BLE001
-                    audio = None
-                root.after(0, lambda: _set_live("…transcribing"))
-                if audio is not None:
-                    threading.Thread(target=_do, args=(audio,), daemon=True).start()
-                else:
-                    root.after(0, lambda: _set_live(""))
-
-            def on_cancel():
-                try:
-                    rec.stop(keep_tail=False)
-                except Exception:  # noqa: BLE001
-                    pass
-                root.after(0, lambda: _set_live(""))
-
-            hk = create_listener(cfg["recording"], on_start=on_start, on_commit=on_commit,
-                                 on_cancel=on_cancel, on_lock=lambda: None,
-                                 is_recording=lambda: rec.recording)
-            hk.start()
-            state["hk"] = hk
-            box.focus_set()
-        except Exception as e:  # noqa: BLE001 — mic/hotkey unavailable: still let them finish
-            log.debug("test loop unavailable", exc_info=True)
-            live.configure(text=f"(couldn't start the mic here — you can still finish: {e})",
-                           text_color=SUB)
-
-        def _finish():
-            try:
-                if state["hk"]:
-                    state["hk"].stop()
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                if state["rec"]:
-                    state["rec"].close()
-            except Exception:  # noqa: BLE001
-                pass
-            result["model"] = model
-            root.destroy()
-
-        finish.configure(command=_finish)
-        # Enter must NOT close the window — it belongs to the test textbox.
-        # (The setup screen bound it to _start; drop that binding entirely so
-        # nothing closes or restarts unless the user clicks Finish or ✕.)
-        root.unbind("<Return>")
-        root.protocol("WM_DELETE_WINDOW", _finish)
-
-    # ------------------------------------------------------------------ #
     #  Setup screen (pick a model)                                        #
     # ------------------------------------------------------------------ #
     action = ctk.CTkFrame(root, fg_color="transparent")
@@ -436,7 +320,10 @@ def _run_setup_ctk(cfg, cfg_path):
 
     def _poll():
         if result["transcriber"] is not None:
-            _show_test()
+            # Hand off: the app starts with this transcriber and immediately
+            # opens the "You're all set" window — the REAL pipeline (pill
+            # overlay + live streaming), not a mock test loop.
+            root.destroy()
             return
         if result["error"] is not None:
             try:
@@ -579,16 +466,7 @@ def _run_setup_tk(cfg, cfg_path):
 
     def _poll():
         if result["transcriber"] is not None:
-            # Ready — hand the window to the user; only they close it.
-            try:
-                prog.stop(); prog.pack_forget()
-            except Exception:  # noqa: BLE001
-                pass
-            hk = cfg["recording"].get("hotkey", "right alt")
-            status.config(text=f"✓ Ready — double-tap  {hk}  in any text field "
-                               "and speak. Click Finish to close this window.", fg=FG)
-            root.unbind("<Return>")  # Enter must not restart setup
-            btn.config(state="normal", text="Finish", command=root.destroy)
+            root.destroy()  # hand off: the app opens the You're-all-set window
             return
         if result["error"] is not None:
             try:

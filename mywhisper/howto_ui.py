@@ -49,21 +49,26 @@ _open_lock = threading.Lock()
 _is_open = False
 
 
-def show_howto(app) -> None:
-    """Open (or ignore if already open) the Svara how-to/test window."""
+def show_howto(app, first_run: bool = False) -> None:
+    """Open (or ignore if already open) the Svara how-to/test window.
+
+    first_run=True is the post-setup "You're all set" welcome — same window,
+    celebratory copy. The live test is the REAL pipeline: double-tap the
+    hotkey and the pill overlay appears while words stream into the textbox.
+    """
     global _is_open
     with _open_lock:
         if _is_open:
             return
         _is_open = True
-    threading.Thread(target=_run, args=(app,), daemon=True,
+    threading.Thread(target=_run, args=(app, first_run), daemon=True,
                      name="howto-window").start()
 
 
-def _run(app):
+def _run(app, first_run):
     global _is_open
     try:
-        _build(app)
+        _build(app, first_run)
     except Exception:  # noqa: BLE001 — a broken help window must not hurt the app
         log.exception("how-to window failed")
     finally:
@@ -71,14 +76,14 @@ def _run(app):
             _is_open = False
 
 
-def _build(app):
+def _build(app, first_run=False):
     import tkinter as tk
 
     cfg = app.cfg
     hk = cfg["recording"].get("hotkey", "right alt")
 
     root = tk.Tk()
-    root.title("Svara")
+    root.title("Svara — You're all set" if first_run else "Svara")
     root.configure(bg=BG)
     W = 560
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
@@ -124,9 +129,12 @@ def _build(app):
     except Exception:  # noqa: BLE001
         pass
 
-    tk.Label(root, text="Svara is running", bg=BG, fg=FG,
-             font=("Segoe UI Semibold", 20), anchor="w").pack(fill="x", padx=26)
-    tk.Label(root, text="It types wherever your cursor is — in any app.",
+    tk.Label(root, text="You're all set ✓" if first_run else "Svara is running",
+             bg=BG, fg=FG, font=("Segoe UI Semibold", 20), anchor="w"
+             ).pack(fill="x", padx=26)
+    tk.Label(root, text=("Try it right here — your words stream in live while "
+                         "the pill hovers on screen." if first_run else
+                         "It types wherever your cursor is — in any app."),
              bg=BG, fg=SUB, font=("Segoe UI", 11), anchor="w"
              ).pack(fill="x", padx=26, pady=(0, 10))
 
@@ -189,7 +197,8 @@ def _build(app):
              bg=BG, fg=SUB, font=("Segoe UI", 9), anchor="w",
              wraplength=W - 150, justify="left").pack(side="left", fill="x",
                                                       expand=True)
-    tk.Button(foot, text="Close", bg=ACCENT, fg="#06181d",
+    tk.Button(foot, text="Finish  →" if first_run else "Close",
+              bg=ACCENT, fg="#06181d",
               font=("Segoe UI Semibold", 10), bd=0, padx=22, pady=7,
               cursor="hand2", command=root.destroy).pack(side="right")
 

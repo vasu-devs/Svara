@@ -226,6 +226,7 @@ def main() -> int:
     # by an older build that pinned a big model to the CPU despite an NVIDIA
     # GPU being present (unusably slow — 20-30s per utterance).
     transcriber = None
+    setup_completed = False
     from .paths import base_dir
     setup_flag = base_dir() / ".svara_ready"
     stamp = _exe_stamp()
@@ -256,6 +257,7 @@ def main() -> int:
             from .setup_ui import run_setup
             model, transcriber = run_setup(cfg, cfg_path)
             if model:
+                setup_completed = True
                 cfg["model"]["name"] = model
                 if transcriber is not None:  # setup loaded it on this device
                     cfg["model"]["device"] = transcriber.device_used
@@ -270,7 +272,8 @@ def main() -> int:
     from .app import MyWhisperApp
 
     _splash(f"Loading the {cfg['model']['name'].split('/')[-1]} speech model…")
-    app = MyWhisperApp(cfg, no_tray=args.no_tray, transcriber=transcriber)
+    app = MyWhisperApp(cfg, no_tray=args.no_tray, transcriber=transcriber,
+                       show_welcome=setup_completed)
     _splash(close=True)
     app.run()
     return 0

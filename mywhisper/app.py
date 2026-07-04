@@ -37,8 +37,10 @@ except ImportError:  # non-Windows dev machine
 
 
 class MyWhisperApp:
-    def __init__(self, cfg: dict, no_tray: bool = False, transcriber=None):
+    def __init__(self, cfg: dict, no_tray: bool = False, transcriber=None,
+                 show_welcome: bool = False):
         self.cfg = cfg
+        self.show_welcome = show_welcome  # setup just finished → open You're-all-set
         self.paused = False
         self._stop_lock = threading.Lock()
         self._shutdown = threading.Event()
@@ -175,10 +177,10 @@ class MyWhisperApp:
 
     # -- the Svara window (how-to + live test + language) ---------------------
 
-    def show_howto(self):
+    def show_howto(self, first_run: bool = False):
         from .howto_ui import show_howto
 
-        show_howto(self)
+        show_howto(self, first_run=first_run)
 
     def _howto_signal_listener(self):
         """When the user double-clicks Svara.exe again, that doomed copy
@@ -579,6 +581,12 @@ class MyWhisperApp:
             log.info("MyWhisper ready — long-press [%s] and speak "
                      "(tap = cancel, double-tap = hands-free lock).", hk)
 
+        # Setup just completed: open the "You're all set" window — its live
+        # test runs THIS pipeline (pill overlay + streaming words), so what
+        # the user tries is exactly what they get everywhere else.
+        if self.show_welcome:
+            threading.Timer(0.8, lambda: self.show_howto(first_run=True)).start()
+
         # Packaged app: a double-click must never look like "nothing happened".
         # Flash the pill briefly and toast from the tray once the icon is up.
         if getattr(sys, "frozen", False):
@@ -586,7 +594,7 @@ class MyWhisperApp:
             threading.Timer(1.8, lambda: (
                 self.overlay.hide() if not self.recorder.recording else None
             )).start()
-            if self.tray:
+            if self.tray and not self.show_welcome:
                 threading.Timer(1.2, lambda: self.tray.notify(
                     f"Ready — double-tap {hk} in any text field and speak. "
                     "I live in the system tray (near the clock).")).start()
