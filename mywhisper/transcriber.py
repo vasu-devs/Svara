@@ -108,6 +108,10 @@ class Transcriber:
                 initial_prompt=self.cfg.get("initial_prompt"),
                 vad_filter=True,
                 condition_on_previous_text=False,
+                # Single temperature: the default fallback ladder silently
+                # re-decodes an ambiguous window up to 5× — a latency spike a
+                # live pass can't afford. (The final pass keeps the fallback.)
+                temperature=0.0,
             )
             return [(s.text.strip(), float(s.start), float(s.end))
                     for s in segments if s.text.strip()]
