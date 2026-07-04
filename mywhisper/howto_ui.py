@@ -148,23 +148,30 @@ def _build(app):
     lrow.pack(fill="x", padx=26, pady=(12, 0))
     tk.Label(lrow, text="Language", bg=BG, fg=SUB,
              font=("Segoe UI", 9, "bold")).pack(side="left")
-    cur = app.current_language
-    labels = {code: label for code, label in LANGS}
-    var = tk.StringVar(value=labels.get(cur, "Auto-detect"))
+    if getattr(app, "is_multilingual", True):
+        cur = app.current_language
+        labels = {code: label for code, label in LANGS}
+        var = tk.StringVar(value=labels.get(cur, "Auto-detect"))
 
-    def _pick(label):
-        code = next((c for c, lbl in LANGS if lbl == label), None)
-        app.set_language(code)
+        def _pick(label):
+            code = next((c for c, lbl in LANGS if lbl == label), None)
+            app.set_language(code)
 
-    opt = tk.OptionMenu(lrow, var, *[lbl for _c, lbl in LANGS], command=_pick)
-    opt.configure(bg=CARD, fg=FG, activebackground=CARD, activeforeground=ACCENT,
-                  highlightthickness=0, bd=0, font=("Segoe UI", 10),
-                  indicatoron=True)
-    opt["menu"].configure(bg=CARD, fg=FG, activebackground="#0f2028",
-                          activeforeground=ACCENT, bd=0)
-    opt.pack(side="left", padx=(10, 0))
-    tk.Label(lrow, text="Auto-detect just works — pick one to lock it.",
-             bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left", padx=(10, 0))
+        opt = tk.OptionMenu(lrow, var, *[lbl for _c, lbl in LANGS], command=_pick)
+        opt.configure(bg=CARD, fg=FG, activebackground=CARD,
+                      activeforeground=ACCENT, highlightthickness=0, bd=0,
+                      font=("Segoe UI", 10), indicatoron=True)
+        opt["menu"].configure(bg=CARD, fg=FG, activebackground="#0f2028",
+                              activeforeground=ACCENT, bd=0)
+        opt.pack(side="left", padx=(10, 0))
+        tk.Label(lrow, text="Auto-detect just works — pick one to lock it.",
+                 bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
+                                                           padx=(10, 0))
+    else:
+        tk.Label(lrow, text="English (this model is English-tuned — switch to "
+                            "the multilingual model in the tray for more)",
+                 bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
+                                                           padx=(10, 0))
 
     # --- live test area ---
     tk.Label(root, text=f"TRY IT — click below, double-tap  {hk} , and speak",

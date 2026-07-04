@@ -4,12 +4,13 @@
 # ======================================================================
 
 model:
-  name: large-v3-turbo        # ANY Whisper model — pick for your VRAM/accuracy tradeoff:
-                              #   tiny (~1GB) · base · small · medium · distil-large-v3
-                              #   large-v3 (most accurate) · large-v3-turbo (best speed/accuracy)
-                              # Multilingual models (all but *.en) understand 90+ languages.
-  device: cuda                # cuda | cpu | auto
-  compute_type: int8_float16  # GPU: int8_float16 (~1.5GB VRAM, fastest) | float16
+  name: base.en               # ANY Whisper model or HF CT2 repo id. Measured on a
+                              # laptop CPU, base.en is the live-streaming sweet spot;
+                              # distil-*.en are more accurate (slower live), and
+                              # large-v3-turbo is the multilingual option.
+                              # First-run setup picks the right one for your machine.
+  device: cpu                 # cuda | cpu | auto  (setup switches GPU machines to cuda)
+  compute_type: int8          # GPU: int8_float16 (~1.5GB VRAM, fastest) | float16
                               # CPU: int8
   language: en                # LANGUAGE you dictate in: ISO code (en, hi, es, fr, de, it, pt,
                               #   ja, ko, zh, ru, ar, ...) — or null to AUTO-DETECT each time.

@@ -234,8 +234,10 @@ def main() -> int:
         setup_done = setup_flag.read_text(encoding="utf-8").strip() == stamp
     except OSError:
         pass
-    # Keep in sync with setup_ui._CPU_OK (not imported: that module pulls tkinter).
-    cpu_ok = ("tiny", "base", "small",
+    # CPU-viable models: setup_ui._CPU_OK plus legacy ids from older installs
+    # (not imported: that module pulls tkinter). The heal only targets big
+    # models stranded on the CPU of a GPU machine.
+    cpu_ok = ("tiny", "base", "small", "tiny.en", "base.en", "small.en",
               "Systran/faster-distil-whisper-small.en",
               "collabora/faster-whisper-small-hindi")
     stale_cpu_cfg = False

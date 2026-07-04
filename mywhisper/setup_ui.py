@@ -21,29 +21,26 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 # (model id, display name, blurb). Ids can be plain whisper sizes or Hugging
-# Face CT2 repo ids — faster-whisper takes both. Distil models are distilled
-# whisper: same-or-better accuracy than the next size up, smaller and several
-# times faster to decode — but ENGLISH-ONLY, hence the multilingual entries.
+# Face CT2 repo ids — faster-whisper takes both. v1 is ENGLISH-FIRST: distil
+# models are distilled whisper — same-or-better English accuracy than the next
+# size up, smaller and several times faster (that speed IS the live-streaming
+# latency). One multilingual escape hatch stays at the bottom; the full
+# multilingual lineup returns in a later release.
 MODELS = [
-    ("Systran/faster-distil-whisper-small.en", "English · Distil Small",
-     "Best small pick for English — Small's accuracy, much faster · ~330 MB"),
-    ("base", "Base · all languages", "Fast, decent accuracy · ~150 MB"),
-    ("collabora/faster-whisper-small-hindi", "हिन्दी Hindi",
-     "Tuned for Hindi — dramatically better than stock models · ~480 MB"),
-    ("small", "Small · all languages",
-     "Better accuracy, a little slower · ~480 MB"),
-    ("tiny", "Tiny · all languages",
-     "Fastest, roughest — for very low-end PCs · ~75 MB"),
-    ("Systran/faster-distil-whisper-medium.en", "English · Distil Medium",
+    ("base.en", "Base",
+     "Recommended — words appear live as you speak, on any PC · ~145 MB"),
+    ("Systran/faster-distil-whisper-small.en", "Distil Small",
+     "More accurate; live typing trails ~1 s on CPU · ~330 MB"),
+    ("tiny.en", "Tiny",
+     "For very old PCs — fastest possible, roughest · ~75 MB"),
+    ("Systran/faster-distil-whisper-medium.en", "Distil Medium",
      "Great accuracy at half of Medium's size · ~790 MB"),
-    ("distil-whisper/distil-large-v3.5-ct2", "English · Distil Large v3.5",
-     "Most accurate for English — smaller AND faster than Turbo · ~1.5 GB"),
+    ("distil-whisper/distil-large-v3.5-ct2", "Distil Large v3.5",
+     "Most accurate English — beats Large Turbo, and faster · ~1.5 GB"),
     ("large-v3-turbo", "Large v3 Turbo · all languages",
-     "Best multilingual accuracy · ~1.6 GB"),
+     "The multilingual option (90+ languages) · ~1.6 GB"),
 ]
-_CPU_OK = {"tiny", "base", "small",
-           "Systran/faster-distil-whisper-small.en",
-           "collabora/faster-whisper-small-hindi"}
+_CPU_OK = {"tiny.en", "base.en", "Systran/faster-distil-whisper-small.en"}
 _NAMES = {value: name for value, name, _sub in MODELS}
 
 
@@ -112,7 +109,7 @@ def _plan(cfg):
     mlist = MODELS if use_gpu else [m for m in MODELS if m[0] in _CPU_OK]
     valid = [m[0] for m in mlist]
     if use_gpu:
-        default = "large-v3-turbo"  # multilingual-safe top pick
+        default = "distil-whisper/distil-large-v3.5-ct2"  # best English pick
     else:
         default = (cfg.get("model") or {}).get("name") or valid[0]
     if default not in valid:

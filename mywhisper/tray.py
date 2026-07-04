@@ -80,7 +80,17 @@ class Tray:
 
             return pystray.MenuItem(label, action, checked=is_checked, radio=True)
 
+        def model_item(value, name, sub):
+            def action(icon, item):
+                self.app.set_model(value)
+
+            def is_checked(item):
+                return self.app.cfg["model"]["name"] == value
+
+            return pystray.MenuItem(name, action, checked=is_checked, radio=True)
+
         from .howto_ui import LANGS
+        from .setup_ui import MODELS
 
         menu = pystray.Menu(
             pystray.MenuItem(
@@ -95,8 +105,14 @@ class Tray:
                 default=True,  # double-clicking the tray icon opens it too
             ),
             pystray.MenuItem(
+                "Model",
+                pystray.Menu(*[model_item(*m) for m in MODELS]),
+            ),
+            pystray.MenuItem(
                 "Language",
                 pystray.Menu(*[lang_item(c, lbl) for c, lbl in LANGS]),
+                # English-only models can't switch language — hide the menu.
+                visible=lambda item: self.app.is_multilingual,
             ),
             pystray.MenuItem(
                 "Theme",

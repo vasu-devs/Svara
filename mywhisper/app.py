@@ -47,6 +47,7 @@ class MyWhisperApp:
         self._stopping = False
         self._voice_rms: float | None = None  # your speaking-loudness baseline
 
+        self._model_switch = False
         self.recorder = Recorder(cfg["audio"], cfg["recording"])
         self.injector = TextInjector(cfg["injection"])
         self.cleanup = CleanupPipeline(cfg["cleanup"])
@@ -93,6 +94,71 @@ class MyWhisperApp:
     def toggle_paused(self):
         self.paused = not self.paused
         log.info("Paused" if self.paused else "Resumed")
+
+    # -- model switching -------------------------------------------------------
+
+    @property
+    def is_multilingual(self) -> bool:
+        """Whether the ACTIVE model understands non-English speech (gates the
+        language picker — offering Hindi on an English-only model is a trap)."""
+        try:
+            return bool(self.transcriber.model.model.is_multilingual)
+        except Exception:  # noqa: BLE001
+            return True
+
+    def set_model(self, value: str):
+        """Switch models live from the tray: download if needed (toast
+        progress), load in a worker thread, swap atomically, persist.
+        Dictation keeps working on the old model until the new one is ready."""
+        if self._model_switch or value == self.cfg["model"]["name"]:
+            return
+        self._model_switch = True
+
+        def work():
+            try:
+                from . import cuda_setup as cuda
+                from .paths import ensure_config
+                from .setup_ui import (_CPU_OK, _apply_config, _download_model,
+                                       display_name)
+                name = display_name(value)
+                dev = self.transcriber.device_used
+                comp = self.transcriber.compute_used
+                # Upgrading to a big model on a GPU machine still running CPU:
+                # fetch the CUDA runtime so the upgrade actually delivers.
+                if (value not in _CPU_OK and dev == "cpu"
+                        and cuda.gpu_present() and not cuda.cuda_available()):
+                    if self.tray:
+                        self.tray.notify(
+                            f"Downloading GPU support (~1.3 GB) for {name}— "
+                            "one time, please wait…")
+                    if cuda.download_cuda():
+                        cuda.setup()
+                        dev, comp = "cuda", "int8_float16"
+                if self.tray:
+                    self.tray.notify(f"Getting {name} ready — dictation keeps "
+                                     "working on the current model meanwhile…")
+                mcfg = dict(self.cfg["model"])
+                mcfg.update(name=value, device=dev, compute_type=comp)
+                _download_model(value, mcfg, {"done": 0, "total": 0})
+                new = Transcriber(mcfg)  # loads + warms up
+                self.transcriber = new
+                self.cfg["model"]["name"] = value
+                _apply_config(ensure_config(), value, new.device_used,
+                              new.compute_used)
+                if self.tray:
+                    self.tray.notify(f"✓ {name} is now active "
+                                     f"(on {new.device_used})")
+                log.info("model → %s on %s", value, new.device_used)
+            except Exception:  # noqa: BLE001
+                log.exception("model switch failed")
+                if self.tray:
+                    self.tray.notify("Model switch failed — still on "
+                                     f"{self.cfg['model']['name']}. "
+                                     "See logs/mywhisper.log")
+            finally:
+                self._model_switch = False
+
+        threading.Thread(target=work, daemon=True, name="model-switch").start()
 
     # -- language ------------------------------------------------------------
 
