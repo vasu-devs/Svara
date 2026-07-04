@@ -5,7 +5,6 @@ import { Visualizer } from "@/components/Visualizer";
 import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/lib/engine";
 
 const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara.exe";
-const DOWNLOAD_GPU = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-Windows-GPU.zip";
 const GITHUB = "https://github.com/vasu-devs/Svara";
 
 const SPY = [
@@ -387,7 +386,7 @@ export default function Page() {
                 <a className="btn btn-dark-ghost" href={GITHUB} target="_blank" rel="noopener">Star on GitHub</a>
               </div>
             </Reveal>
-            <Reveal delay={0.18}><p className="cta-note">~110 MB · Windows 10 / 11 · download and run · <a href={DOWNLOAD_GPU}>NVIDIA GPU? get the GPU pack ↗</a></p></Reveal>
+            <Reveal delay={0.18}><p className="cta-note">~110 MB · Windows 10 / 11 · download and run · NVIDIA GPU support downloads automatically on first launch</p></Reveal>
           </div>
         </section>
       </main>
