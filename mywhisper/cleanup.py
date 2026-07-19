@@ -105,39 +105,83 @@ class Personalizer:
 
 
 class LlmCleanup:
+    """Local-LLM access for cleanup/transforms — speaks BOTH local dialects:
+
+    - ollama:  POST {url}/api/chat            (probe: GET {url}/api/tags)
+    - openai:  POST {openai_url}/chat/completions — LM Studio, llama.cpp
+               server, Jan, vLLM… (probe: GET {openai_url}/models)
+
+    api: "auto" (default) probes Ollama first, then the OpenAI-compatible
+    endpoint, and remembers what answered. In openai mode the model id is
+    taken from the server's /models list unless openai_model pins one —
+    LM Studio serves whatever the user loaded, so asking beats guessing.
+    """
+
     def __init__(self, llm_cfg: dict):
         self.cfg = llm_cfg
-        self._reachable: bool | None = None  # cached Ollama probe
+        self._backend: str | None = None   # "ollama" | "openai" | None
+        self._backend_known = False
+        self._openai_model: str | None = None
         self._probed_at = 0.0
 
     @property
     def enabled(self) -> bool:
         return bool(self.cfg["enabled"])
 
-    def reachable(self, ttl_s: float = 600.0) -> bool:
-        """Is Ollama answering? Cached — probing per-utterance would add
-        latency, and 'high' cleanup asks this on every dictation."""
-        now = time.monotonic()
-        if self._reachable is not None and now - self._probed_at < ttl_s:
-            return self._reachable
-        self._probed_at = now
-        try:
-            with urllib.request.urlopen(self.cfg["url"].rstrip("/") + "/api/tags",
-                                        timeout=2.0):
-                self._reachable = True
-        except (urllib.error.URLError, TimeoutError, OSError):
-            self._reachable = False
-        return self._reachable
+    def _openai_base(self) -> str:
+        return (self.cfg.get("openai_url")
+                or "http://localhost:1234/v1").rstrip("/")
 
-    def run_prompt(self, system_prompt: str, text: str,
-                   style_hint: str | None = None) -> str | None:
-        """One chat call with an arbitrary system prompt. Returns None on any
-        failure — callers decide whether that means "fall back to the input"
-        (dictation cleanup) or "tell the user" (transforms)."""
-        if len(text) < 4:
-            return text
-        if style_hint:
-            system_prompt = f"{system_prompt}\n\nTone/style: {style_hint}"
+    def _probe_ollama(self) -> bool:
+        try:
+            with urllib.request.urlopen(
+                    self.cfg["url"].rstrip("/") + "/api/tags", timeout=2.0):
+                return True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            return False
+
+    def _probe_openai(self) -> bool:
+        try:
+            with urllib.request.urlopen(self._openai_base() + "/models",
+                                        timeout=2.0) as r:
+                body = json.loads(r.read().decode("utf-8"))
+            models = [m.get("id") for m in body.get("data") or [] if m.get("id")]
+            if not models:
+                return False
+            self._openai_model = (self.cfg.get("openai_model")
+                                  or models[0])
+            return True
+        except (urllib.error.URLError, TimeoutError, OSError,
+                json.JSONDecodeError):
+            return False
+
+    def backend(self, ttl_s: float = 600.0) -> str | None:
+        """Which local LLM server is answering. Cached both ways — probing
+        per-utterance would add latency; a found server is trusted for ttl_s,
+        a missing one re-probed after 60s so starting LM Studio/Ollama is
+        noticed quickly."""
+        now = time.monotonic()
+        window = ttl_s if self._backend is not None else 60.0
+        if self._backend_known and now - self._probed_at < window:
+            return self._backend
+        api = str(self.cfg.get("api", "auto")).lower()
+        self._probed_at = now
+        if api == "ollama":
+            self._backend = "ollama" if self._probe_ollama() else None
+        elif api == "openai":
+            self._backend = "openai" if self._probe_openai() else None
+        else:  # auto
+            self._backend = ("ollama" if self._probe_ollama()
+                             else "openai" if self._probe_openai() else None)
+        self._backend_known = True
+        if self._backend:
+            log.info("local LLM found: %s", self._backend)
+        return self._backend
+
+    def reachable(self, ttl_s: float = 600.0) -> bool:
+        return self.backend(ttl_s) is not None
+
+    def _call_ollama(self, system_prompt: str, text: str) -> str:
         payload = {
             "model": self.cfg["model"],
             "stream": False,
@@ -151,21 +195,59 @@ class LlmCleanup:
         req = urllib.request.Request(
             self.cfg["url"].rstrip("/") + "/api/chat",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=float(self.cfg["timeout_s"])) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        return (body.get("message") or {}).get("content", "").strip()
+
+    def _call_openai(self, system_prompt: str, text: str) -> str:
+        payload = {
+            "model": self._openai_model or self.cfg.get("openai_model") or "",
+            "stream": False,
+            "temperature": 0.1,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": text},
+            ],
+        }
+        req = urllib.request.Request(
+            self._openai_base() + "/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST")
+        with urllib.request.urlopen(req, timeout=float(self.cfg["timeout_s"])) as resp:
+            body = json.loads(resp.read().decode("utf-8"))
+        choices = body.get("choices") or []
+        msg = (choices[0].get("message") or {}) if choices else {}
+        return (msg.get("content") or "").strip()
+
+    def run_prompt(self, system_prompt: str, text: str,
+                   style_hint: str | None = None) -> str | None:
+        """One chat call with an arbitrary system prompt. Returns None on any
+        failure — callers decide whether that means "fall back to the input"
+        (dictation cleanup) or "tell the user" (transforms)."""
+        if len(text) < 4:
+            return text
+        if style_hint:
+            system_prompt = f"{system_prompt}\n\nTone/style: {style_hint}"
+        backend = self.backend()
+        if backend is None:
+            log.warning("no local LLM server answering — using raw transcript")
+            return None
         try:
-            with urllib.request.urlopen(req, timeout=float(self.cfg["timeout_s"])) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-            cleaned = (body.get("message") or {}).get("content", "").strip()
+            cleaned = (self._call_ollama(system_prompt, text)
+                       if backend == "ollama"
+                       else self._call_openai(system_prompt, text))
             # Defensive: models sometimes wrap output in quotes or fences.
             cleaned = cleaned.strip("`").strip()
             if cleaned.startswith('"') and cleaned.endswith('"') and len(cleaned) > 2:
                 cleaned = cleaned[1:-1]
             return cleaned or None
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
-            log.warning("LLM cleanup unavailable (%s) — using raw transcript", e)
-            self._reachable, self._probed_at = False, time.monotonic()
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError,
+                OSError, IndexError, KeyError) as e:
+            log.warning("LLM cleanup unavailable via %s (%s) — using raw "
+                        "transcript", backend, e)
+            self._backend, self._backend_known = None, True
+            self._probed_at = time.monotonic()
             return None
 
     def run(self, text: str, style_hint: str | None = None) -> str:

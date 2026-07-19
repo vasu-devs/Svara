@@ -412,7 +412,7 @@ class MyWhisperApp:
             log.info("notify: %s", message)
 
     def paste_last(self):
-        """Shift+Alt+Z (configurable): re-paste the last dictation at the
+        """Win+Alt+Z (configurable): re-paste the last dictation at the
         cursor — the rescue for a chat that ate your message."""
         text = self.history.last()
         if not text:

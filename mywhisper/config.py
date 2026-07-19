@@ -50,8 +50,12 @@ DEFAULTS: dict = {
             "caps_ratio": 2.5,          # segment ≥2.5× the utterance median → CAPS
         },
         "llm": {
-            "enabled": False,           # requires a local Ollama server
+            "enabled": False,           # force-on; level "high" also uses it when a
+                                        # local server is detected
+            "api": "auto",              # auto | ollama | openai (LM Studio, llama.cpp…)
             "url": "http://localhost:11434",
+            "openai_url": "http://localhost:1234/v1",  # LM Studio's default server
+            "openai_model": None,       # None = first model the server reports
             "model": "qwen2.5:3b-instruct",
             "timeout_s": 20,
             "keep_alive": "10m",
@@ -84,9 +88,12 @@ DEFAULTS: dict = {
                                         # tone hint for the LLM cleanup
     },
     "shortcuts": {
-        "paste_last": "<shift>+<alt>+z",    # re-paste the last dictation
-        "copy_last": "<shift>+<alt>+x",     # copy it instead
-        "polish": "<cmd>+<alt>+p",          # rewrite SELECTED text (needs Ollama)
+        # Win+Alt family on purpose: Shift+Alt is the Windows keyboard-layout
+        # toggle on multi-layout machines — a chord that flips the user's
+        # input language as a side effect is not a shortcut, it's a trap.
+        "paste_last": "<cmd>+<alt>+z",      # re-paste the last dictation
+        "copy_last": "<cmd>+<alt>+x",       # copy it instead
+        "polish": "<cmd>+<alt>+p",          # rewrite SELECTED text (needs local LLM)
         "scratchpad": "<cmd>+<alt>+s",      # toggle the notes window
         "command_key": None,                # e.g. "f9": hold + speak an instruction
     },

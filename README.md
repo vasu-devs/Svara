@@ -97,12 +97,13 @@ subscription, no telemetry, and it works offline.
   (Slack/Discord/WhatsApp…) lose the passive-aggressive trailing period.
   Nothing about your screen ever leaves the machine.
 - **Never lose a dictation.** Crash-safe audio recovery on the next launch, a
-  searchable local **History** window, and `Shift+Alt+Z` to re-paste the last
+  searchable local **History** window, and `Win+Alt+Z` to re-paste the last
   dictation into any field.
 - **AI on tap, not by default.** A Cleanup dial (None/Light/Medium/High),
   "scratch that" retractions, `Win+Alt+P` **Polish** for selected text, per-app
-  tone styles, and an optional hold-and-speak **command key** — all powered by
-  your own local Ollama when you want them, plain rules when you don't.
+  tone styles, and an optional hold-and-speak **command key** — powered by your
+  own local LLM server, plain rules when you don't want one. Svara auto-detects
+  **Ollama** and any **OpenAI-compatible server (LM Studio, llama.cpp, Jan)**.
 - **Whisper mode & scratchpad.** 3× mic gain for speaking softly at 2 a.m., and
   a `Win+Alt+S` note window that autosaves locally.
 
@@ -223,9 +224,11 @@ cleanup:
   whole utterance, so background noise or a naturally loud voice will not trigger
   it — only real emphasis does.
 - **Filler removal.** `um`, `uh`, false starts, and stutters are cleaned on the fly.
-- **LLM polish (optional).** Point Svara at a local [Ollama](https://ollama.com)
-  model for punctuation, paragraphing, and self-correction — the "Wispr magic",
-  fully offline. It never adds content, answers questions, or translates.
+- **LLM polish (optional).** Point Svara at a local LLM for punctuation,
+  paragraphing, and self-correction — the "Wispr magic", fully offline. It
+  auto-detects [Ollama](https://ollama.com) or any OpenAI-compatible server
+  ([LM Studio](https://lmstudio.ai), llama.cpp, Jan) and never adds content,
+  answers questions, or translates.
 
 ### Personal dictionary, fixes, and snippets
 

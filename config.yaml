@@ -61,9 +61,16 @@ cleanup:
   expressive:                 # 🔊 voice-aware formatting
     enabled: true
     caps_ratio: 2.5           # segment ≥2.5× louder than the utterance median → TYPES IN CAPS
-  llm:                        # the "Wispr magic" — needs Ollama running locally
-    enabled: false            # flip to true after: ollama pull qwen2.5:3b-instruct
-    url: http://localhost:11434
+  llm:                        # the "Wispr magic" — needs a LOCAL LLM server:
+                              #   Ollama (ollama pull qwen2.5:3b-instruct), or
+                              #   LM Studio / llama.cpp / Jan (OpenAI-compatible)
+    enabled: false            # true = always use it; cleanup level "high" also
+                              #   engages it automatically when a server is found
+    api: auto                 # auto = detect (Ollama first, then LM Studio)
+                              #   | ollama | openai
+    url: http://localhost:11434          # Ollama
+    openai_url: http://localhost:1234/v1 # LM Studio's default local server
+    openai_model: null        # null = whatever model the server has loaded
     model: qwen2.5:3b-instruct
     timeout_s: 20
     keep_alive: 10m
@@ -105,9 +112,11 @@ context:                      # look at the app you're dictating INTO (all local
                               #             "outlook.exe": "professional email tone" }
 
 shortcuts:                    # global chords (pynput syntax; <cmd> = Win key)
-  paste_last: "<shift>+<alt>+z"   # re-paste the last dictation (chat ate it?)
-  copy_last: "<shift>+<alt>+x"    # copy the last dictation instead
-  polish: "<cmd>+<alt>+p"         # rewrite SELECTED text in place (needs Ollama)
+                              # Win+Alt family on purpose — Shift+Alt would toggle
+                              # your keyboard layout on multi-language machines
+  paste_last: "<cmd>+<alt>+z"     # re-paste the last dictation (chat ate it?)
+  copy_last: "<cmd>+<alt>+x"      # copy the last dictation instead
+  polish: "<cmd>+<alt>+p"         # rewrite SELECTED text in place (needs a local LLM)
   scratchpad: "<cmd>+<alt>+s"     # toggle the scratchpad note window
   command_key: null               # e.g. f9 — HOLD it and SAY what to do with the
                                   #   selected text ("make this friendlier")

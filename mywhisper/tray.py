@@ -234,7 +234,7 @@ class Tray:
                 ),
             ),
             pystray.MenuItem(
-                "LLM cleanup (Ollama)",
+                "LLM cleanup (Ollama / LM Studio)",
                 lambda icon, item: self.app.toggle_llm(),
                 checked=lambda item: self.app.cleanup.llm.cfg["enabled"],
             ),

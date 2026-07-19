@@ -96,9 +96,9 @@ class Transformer:
             result = self.llm.run_prompt(system_prompt, sel)
             if result is None:
                 _restore_clipboard(old)
-                self.notify("This needs the local LLM. Install Ollama, run "
-                            "'ollama pull qwen2.5:3b-instruct', and enable "
-                            "cleanup.llm in config.")
+                self.notify("This needs a local LLM. Start LM Studio's local "
+                            "server (with any model loaded) or install "
+                            "Ollama — Svara finds either automatically.")
                 return
             result = result.strip()
             if not result or result == sel.strip():
