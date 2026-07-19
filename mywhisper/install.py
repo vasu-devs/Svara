@@ -252,8 +252,10 @@ def set_autostart(enabled: bool) -> bool:
             return False
     try:
         import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0,
-                            winreg.KEY_SET_VALUE) as k:
+        # CreateKeyEx, not OpenKey: a pristine user profile (fresh Windows
+        # install, CI runner) may not have the Run key yet.
+        with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0,
+                                winreg.KEY_SET_VALUE) as k:
             if enabled:
                 winreg.SetValueEx(k, APP_NAME, 0, winreg.REG_SZ,
                                   f'"{exe}" --autostart')
