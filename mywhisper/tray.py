@@ -1,6 +1,7 @@
 """System tray icon (pystray) — status, look pickers, quick toggles, quit."""
 
 import logging
+import sys
 
 from .overlay import BGS, WAVES
 from .themes import theme_names
@@ -171,6 +172,26 @@ class Tray:
             pystray.MenuItem(
                 "Background",
                 pystray.Menu(*[bg_item(n) for n in BGS]),
+            ),
+            pystray.MenuItem(
+                "Dictionary",
+                pystray.Menu(
+                    pystray.MenuItem(
+                        "Edit words, fixes & snippets…",
+                        lambda icon, item: self.app.edit_dictionary(),
+                    ),
+                    pystray.MenuItem(
+                        "Reload (apply changes now)",
+                        lambda icon, item: self.app.reload_dictionary(),
+                    ),
+                ),
+            ),
+            pystray.MenuItem(
+                "Start with Windows",
+                lambda icon, item: self.app.toggle_autostart(),
+                checked=lambda item: self.app.autostart_enabled,
+                # meaningless for source runs — there's no exe to register
+                visible=lambda item: getattr(sys, "frozen", False),
             ),
             pystray.MenuItem(
                 "Paused",

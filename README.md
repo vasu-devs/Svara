@@ -100,12 +100,19 @@ toolkit or cuDNN system-wide.
 
 ### Option A — packaged release (no Python)
 
-1. Download the latest zip from [Releases](https://github.com/vasu-devs/Svara/releases).
-2. Unzip and run `Svara.exe`. Look for the mic icon in the tray.
+1. Download the latest `Svara.exe` from [Releases](https://github.com/vasu-devs/Svara/releases).
+2. Double-click it. Svara **installs itself once** to `%LOCALAPPDATA%\Svara`,
+   registers itself to **start with Windows**, and appears in the tray — the
+   downloaded file is just the installer and can be deleted afterwards.
 3. Double-tap `Right Alt` and speak.
 
-The first launch downloads the speech model once (~1.5 GB); after that Svara runs
-fully offline.
+After that it's hands-off: Svara is already running after every reboot, ready
+the moment you double-tap the hotkey. (Turn off "Start with Windows" in the
+tray menu or the Svara window if you'd rather launch it yourself; run with
+`--portable` to skip self-install entirely.)
+
+The first launch downloads the speech model once; after that Svara runs
+fully offline. Your settings live in `%LOCALAPPDATA%\Svara\config.yaml`.
 
 ### Option B — from source
 
@@ -199,6 +206,29 @@ cleanup:
 - **LLM polish (optional).** Point Svara at a local [Ollama](https://ollama.com)
   model for punctuation, paragraphing, and self-correction — the "Wispr magic",
   fully offline. It never adds content, answers questions, or translates.
+
+### Personal dictionary, fixes, and snippets
+
+Teach Svara your words — names, jargon, and shortcuts it should know. Tray icon
+▸ **Dictionary ▸ Edit…**, add entries, then **Dictionary ▸ Reload** (no restart):
+
+```yaml
+dictionary:
+  words: [Svara, Vasudev, CTranslate2]   # boosted during recognition itself
+  replacements:                          # exact fixes applied after transcription
+    "swara": "Svara"                     #   (case-insensitive, whole words only)
+    "get hub": "GitHub"
+  snippets:                              # say the trigger, type the block
+    "my email": "vasu@example.com"
+    "sign off": "Best,\nVasudev"
+  spoken_punctuation: false              # true → "period"/"comma"/"new line"
+                                         #   type . , ⏎ instead of the words
+```
+
+- **`words`** feed faster-whisper's hotword boosting — the model literally hears
+  your vocabulary better, including in live streaming mode.
+- **`replacements`** and **`snippets`** run last in the cleanup pipeline, so your
+  exact spellings always win — even over the optional LLM polish.
 
 ### Hotkey and recording modes
 

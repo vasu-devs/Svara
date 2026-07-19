@@ -32,10 +32,17 @@ double-clicks `MyWhisper.exe`. On first run it downloads the speech model
 (~1.6 GB) into their user cache; after that it runs fully offline.
 
 ## What the user gets
+- **Self-installing (v0.3.0+):** double-clicking the downloaded exe installs to
+  `%LOCALAPPDATA%\Svara`, registers **start-with-Windows** (HKCU Run) + a Start
+  Menu entry, migrates any config/state/CUDA runtime sitting next to the old
+  exe, and relaunches from the installed copy. The download is disposable.
+  `--portable` skips all of it.
 - Double-tap **Right Alt** → speak → tap to stop → text at their cursor
-- Tray icon with theme / visualizer / background pickers
+- Tray icon with theme / visualizer / background pickers, dictionary editor,
+  Start-with-Windows toggle
 - No global keyboard hook (poll-only) — safe, never interferes with typing
-- `config.yaml` sits next to the exe — fully editable (hotkey, model, look…)
+- `config.yaml` lives in `%LOCALAPPDATA%\Svara` — fully editable (hotkey,
+  model, personal dictionary, look…)
 
 ## Notes / expectations
 - **Size:** the folder is large (~3–5 GB) because it bundles the CUDA GPU
@@ -43,8 +50,8 @@ double-clicks `MyWhisper.exe`. On first run it downloads the speech model
   remove the `nvidia.*` collectors from `MyWhisper.spec` before building.
 - **GPU:** the bundled CUDA DLLs need an NVIDIA GPU on the target machine. On
   machines without one, MyWhisper auto-falls back to CPU (slower but works).
-- **Autostart:** ship `autostart-enable.bat` alongside, or add a shortcut to the
-  user's Startup folder pointing at `MyWhisper.exe`.
+- **Autostart:** automatic since v0.3.0 (the exe registers itself; toggle in
+  the tray). `autostart-enable.bat` remains only for the folder build.
 - **Antivirus:** unsigned PyInstaller exes can trip SmartScreen. For public
   distribution, sign the exe with a code-signing certificate.
 

@@ -24,16 +24,16 @@ def _start_menu_dir() -> Path | None:
 
 
 def ensure_start_menu_shortcut() -> None:
-    """Create '<Start Menu>/Programs/Svara.lnk' pointing at the running exe,
-    once. No-op on non-Windows, non-frozen (dev) runs, or if already done."""
+    """Create or RETARGET '<Start Menu>/Programs/Svara.lnk' to the running
+    exe. Retargeting matters: the shortcut used to point at whichever copy ran
+    first (often a since-deleted Downloads exe), leaving Windows Search with a
+    dead 'Svara' entry. No-op on non-Windows or non-frozen (dev) runs."""
     if os.name != "nt" or not getattr(sys, "frozen", False):
         return
     programs = _start_menu_dir()
     if programs is None:
         return
     link_path = programs / "Svara.lnk"
-    if link_path.exists():
-        return
     try:
         programs.mkdir(parents=True, exist_ok=True)
         import comtypes.client
@@ -41,11 +41,18 @@ def ensure_start_menu_shortcut() -> None:
         target = sys.executable
         shell = comtypes.client.CreateObject("WScript.Shell", dynamic=True)
         shortcut = shell.CreateShortcut(str(link_path))
+        if link_path.exists():
+            try:
+                existing = str(shortcut.TargetPath or "")
+                if Path(existing) == Path(target):
+                    return  # already correct — don't touch it
+            except Exception:  # noqa: BLE001 — unreadable target → rewrite it
+                pass
         shortcut.TargetPath = target
         shortcut.WorkingDirectory = str(Path(target).parent)
         shortcut.IconLocation = target
         shortcut.Description = "Svara — private voice dictation"
         shortcut.Save()
-        log.info("registered Start Menu shortcut so Windows Search finds Svara")
+        log.info("Start Menu shortcut → %s (Windows Search finds Svara)", target)
     except Exception:  # noqa: BLE001 — cosmetic OS integration, never fatal
         log.debug("Start Menu shortcut registration failed", exc_info=True)

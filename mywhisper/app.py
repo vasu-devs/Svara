@@ -72,9 +72,10 @@ except ImportError:  # non-Windows dev machine
 
 class MyWhisperApp:
     def __init__(self, cfg: dict, no_tray: bool = False, transcriber=None,
-                 show_welcome: bool = False):
+                 show_welcome: bool = False, quiet_start: bool = False):
         self.cfg = cfg
         self.show_welcome = show_welcome  # setup just finished → open You're-all-set
+        self.quiet_start = quiet_start    # login autostart → no pill flash/toast
         self.paused = False
         self._stop_lock = threading.Lock()
         self._shutdown = threading.Event()
@@ -86,7 +87,7 @@ class MyWhisperApp:
         self._model_switch = False
         self.recorder = Recorder(cfg["audio"], cfg["recording"])
         self.injector = TextInjector(cfg["injection"])
-        self.cleanup = CleanupPipeline(cfg["cleanup"])
+        self.cleanup = CleanupPipeline(cfg["cleanup"], cfg.get("dictionary"))
         self.current_theme = cfg["ui"].get("theme", "minimal-dark")
         self.current_wave = cfg["ui"].get("wave", "strings")
         self.current_bg = cfg["ui"].get("bg", "gradient")
@@ -362,11 +363,90 @@ class MyWhisperApp:
         finally:
             k32.CloseHandle(handle)
 
+    # -- start at login ------------------------------------------------------
+
+    @property
+    def autostart_enabled(self) -> bool:
+        """The registry is the source of truth — state.json only records the
+        user's intent so a self-heal on the next launch knows what to do."""
+        from .install import autostart_registered
+        return autostart_registered()
+
+    def toggle_autostart(self):
+        from .install import set_autostart
+        enable = not self.autostart_enabled
+        ok = set_autostart(enable)
+        self._save_state(autostart=enable if ok else not enable)
+        self._refresh_tray()
+        if ok and self.tray:
+            self.tray.notify(
+                "Svara will start with Windows — dictation is always ready."
+                if enable else
+                "Svara won't start with Windows. You'll need to launch it "
+                "yourself after each restart.")
+
     def toggle_fillers(self):
         self.cleanup.strip_fillers_enabled = not self.cleanup.strip_fillers_enabled
 
     def toggle_llm(self):
         self.cleanup.llm.cfg["enabled"] = not self.cleanup.llm.cfg["enabled"]
+
+    # -- personal dictionary (words, replacements, snippets) -----------------
+
+    _DICT_TEMPLATE = """
+# --- Personal dictionary (added by Svara) -------------------------------
+# After editing: tray icon > Dictionary > Reload  (no restart needed)
+dictionary:
+  words: []                   # names/jargon to recognize better, e.g. [Svara, Vasudev]
+  replacements: {}            # exact fixes, e.g. { "swara": "Svara", "get hub": "GitHub" }
+  snippets: {}                # say the trigger, type the block, e.g.
+                              #   "my email": "you@example.com"
+  spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newline
+"""
+
+    def edit_dictionary(self):
+        """Open config.yaml in the user's editor. Configs written before
+        v0.3.0 have no dictionary section — append the documented template
+        once, so there's something to fill in rather than a mystery format."""
+        from .paths import ensure_config
+        path = ensure_config()
+        try:
+            text = path.read_text(encoding="utf-8") if path.is_file() else ""
+            if "dictionary:" not in text:
+                path.write_text(text.rstrip() + "\n" + self._DICT_TEMPLATE,
+                                encoding="utf-8")
+        except OSError:
+            log.debug("could not seed dictionary template", exc_info=True)
+        try:
+            os.startfile(str(path))  # noqa: S606 — user-initiated
+        except OSError:
+            log.exception("could not open config.yaml")
+
+    def reload_dictionary(self):
+        """Re-read config.yaml and apply the dictionary sections live — no
+        restart. Covers: recognition boost (hotwords), replacements, snippets,
+        spoken punctuation."""
+        from . import config as config_mod
+        from .paths import ensure_config
+        try:
+            fresh = config_mod.load(ensure_config())
+        except Exception:  # noqa: BLE001
+            log.exception("dictionary reload failed")
+            return
+        dcfg = fresh.get("dictionary") or {}
+        self.cfg["dictionary"] = dcfg
+        self.cleanup.personalizer.reload(dcfg)
+        hot = self.cleanup.personalizer.hotwords
+        self.cfg["model"]["hotwords"] = hot
+        self.transcriber.cfg["hotwords"] = hot  # live transcriber, immediately
+        n_words = len(dcfg.get("words") or [])
+        n_rules = (len(dcfg.get("replacements") or {})
+                   + len(dcfg.get("snippets") or {}))
+        log.info("dictionary reloaded — %d words boosted, %d text rules",
+                 n_words, n_rules)
+        if self.tray:
+            self.tray.notify(f"Dictionary reloaded — {n_words} words boosted, "
+                             f"{n_rules} replacement/snippet rules active.")
 
     def _save_state(self, **kv):
         from .paths import state_path
@@ -749,7 +829,9 @@ class MyWhisperApp:
 
         # Packaged app: a double-click must never look like "nothing happened".
         # Flash the pill briefly and toast from the tray once the icon is up.
-        if getattr(sys, "frozen", False):
+        # (Skipped at login autostart — booting your PC isn't a double-click,
+        # and a daily "I'm here!" toast becomes noise users disable.)
+        if getattr(sys, "frozen", False) and not self.quiet_start:
             self.overlay.show("listening")
             threading.Timer(1.8, lambda: (
                 self.overlay.hide() if not self.recorder.recording else None

@@ -268,6 +268,30 @@ def _build(root, app, first_run=False):
                  bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
                                                            padx=(10, 0))
 
+    # --- start with Windows: THE reliability setting. Svara only feels
+    # dependable if the hotkey works after every reboot without the user
+    # ever re-launching the exe — surface the switch where they'll see it. ---
+    import sys as _sys
+    if getattr(_sys, "frozen", False):
+        row = tk.Frame(settings, bg=BG)
+        row.pack(fill="x", pady=3)
+        tk.Label(row, text="Startup", bg=BG, fg=SUB, width=9, anchor="w",
+                 font=("Segoe UI", 9, "bold")).pack(side="left")
+        auto_var = tk.BooleanVar(value=bool(getattr(app, "autostart_enabled",
+                                                    False)))
+
+        def _toggle_autostart():
+            app.toggle_autostart()
+            auto_var.set(bool(getattr(app, "autostart_enabled", False)))
+
+        tk.Checkbutton(
+            row, text="Start Svara when Windows starts  (recommended)",
+            variable=auto_var, command=_toggle_autostart,
+            bg=BG, fg=FG, activebackground=BG, activeforeground=ACCENT,
+            selectcolor=CARD, font=("Segoe UI", 10), bd=0,
+            highlightthickness=0, cursor="hand2",
+        ).pack(side="left", padx=(10, 0))
+
     # --- live test area ---
     tk.Label(root, text=f"TRY IT — click below, double-tap  {hk} , and speak",
              bg=BG, fg=SUB, font=("Segoe UI", 9, "bold"), anchor="w"

@@ -80,6 +80,7 @@ class Transcriber:
                 language=self.cfg["language"],    # None → Whisper auto-detects the spoken language
                 task=self.cfg.get("task", "transcribe"),  # 'translate' → any language in, English out
                 initial_prompt=self.cfg["initial_prompt"],
+                hotwords=self.cfg.get("hotwords"),  # user dictionary → recognition boost
                 vad_filter=True,                  # Silero VAD (bundled) trims silence
                 condition_on_previous_text=False, # avoids hallucination loops
             )
@@ -106,6 +107,7 @@ class Transcriber:
                 language=stream_lang,
                 task=self.cfg.get("task", "transcribe"),
                 initial_prompt=self.cfg.get("initial_prompt"),
+                hotwords=self.cfg.get("hotwords"),  # dictionary boost, live too
                 vad_filter=True,
                 condition_on_previous_text=False,
                 # Single temperature: the default fallback ladder silently

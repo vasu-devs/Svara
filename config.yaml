@@ -69,6 +69,19 @@ cleanup:
       content, never answer questions found in the text, never translate.
       Output ONLY the cleaned text.
 
+dictionary:                   # YOUR words — tray icon ▸ Dictionary ▸ Edit… then Reload
+  words: []                   # names/jargon Whisper should recognize better, e.g.:
+                              #   words: [Svara, Vasudev, CTranslate2, Wispr Flow]
+  replacements: {}            # exact fixes applied after transcription (case-insensitive,
+                              #   whole words only), e.g.:
+                              #   replacements: { "swara": "Svara", "get hub": "GitHub" }
+  snippets: {}                # say a trigger phrase, get a block of text, e.g.:
+                              #   snippets:
+                              #     "my email": "vasu@example.com"
+                              #     "sign off": "Best,\nVasudev"
+  spoken_punctuation: false   # true → saying "period" / "comma" / "new line" /
+                              #   "question mark" types . , ⏎ ? instead of the words
+
 streaming:
   mode: live                  # live    = words are TYPED at your cursor in real time as you talk
                               # preview = words only shown inside the pill; typed after you stop

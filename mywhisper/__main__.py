@@ -92,6 +92,11 @@ def main() -> int:
                         help="run environment diagnostics and exit")
     parser.add_argument("--probe", action="store_true",
                         help="press keys to see their names/codes (find your Fn key)")
+    parser.add_argument("--portable", action="store_true",
+                        help="skip self-install: run from the current location "
+                             "and register nothing")
+    parser.add_argument("--autostart", action="store_true",
+                        help="(internal) launched at Windows login — start quietly")
     parser.add_argument("--list-devices", action="store_true",
                         help="list audio input devices and exit")
     parser.add_argument("-v", "--verbose", action="store_true")
@@ -122,7 +127,7 @@ def main() -> int:
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(message)s",
-        datefmt="%H:%M:%S",
+        datefmt="%Y-%m-%d %H:%M:%S",  # full date: reboot gaps must be visible
         handlers=handlers,
     )
     # ctranslate2/faster_whisper are chatty at DEBUG
@@ -177,6 +182,11 @@ def main() -> int:
         except (OSError, ValueError):
             pass
 
+    # Personal dictionary → decode-time recognition boost (names, jargon).
+    dict_words = (cfg.get("dictionary") or {}).get("words") or []
+    if dict_words:
+        cfg["model"]["hotwords"] = ", ".join(str(w) for w in dict_words)
+
     if args.model:
         cfg["model"]["name"] = args.model
     if args.cpu:
@@ -227,7 +237,15 @@ def main() -> int:
             )
         return 0
 
-    if getattr(sys, "frozen", False):
+    if getattr(sys, "frozen", False) and not args.portable:
+        # Self-install: a copy run from Downloads moves itself to
+        # %LOCALAPPDATA%\Svara, registers autostart + Start Menu, launches
+        # the installed copy and exits — so dictation survives every reboot.
+        from .install import ensure_autostart, ensure_installed
+        if ensure_installed(_splash):
+            _splash(close=True)
+            return 0  # the installed copy has taken over
+        ensure_autostart()
         from .shortcuts import ensure_start_menu_shortcut
         ensure_start_menu_shortcut()
 
@@ -289,7 +307,7 @@ def main() -> int:
 
     _splash(f"Loading the {cfg['model']['name'].split('/')[-1]} speech model…")
     app = MyWhisperApp(cfg, no_tray=args.no_tray, transcriber=transcriber,
-                       show_welcome=setup_completed)
+                       show_welcome=setup_completed, quiet_start=args.autostart)
     _splash(close=True)
     app.run()
     return 0

@@ -61,6 +61,12 @@ DEFAULTS: dict = {
             ),
         },
     },
+    "dictionary": {
+        "words": [],                    # names/jargon boosted during recognition
+        "replacements": {},             # {"heard": "typed"} exact fixes, post-STT
+        "snippets": {},                 # {"spoken trigger": "expanded text"}
+        "spoken_punctuation": False,    # "period"/"comma"/"new line" → . , \n
+    },
     "streaming": {
         "mode": "live",                 # live (types words in real time as you speak)
                                         # | preview (live text in the pill) | off
