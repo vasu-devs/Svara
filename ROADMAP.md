@@ -26,63 +26,53 @@ Legend — `LOCAL`: rules/OS APIs, no LLM · `sLLM`: needs a small local LLM
   live streaming typing, filler stripping, loudness→CAPS, optional Ollama
   cleanup, pill overlay with themes, tray, per-utterance 10-min cap.
 
-## Phase 1 — reliability & trust (all LOCAL, do next)
+## Shipped in v0.4.0 (the "make everything" release)
 
-1. **Crash-safe audio**: buffer the recording to disk during capture; on
-   crash/quit, offer "finish processing last dictation". Wispr shipped this
-   because losing a long dictation is rage-inducing.
-2. **Transcript history + paste-last hotkey**: SQLite log of every dictation
-   (text + timestamp + app), tray "History…" window with search/copy/retry;
-   `Shift+Alt+Z` paste-last. Privacy: local file, optional 24 h auto-delete,
-   or off — make it a visible setting like Wispr's storage modes.
-3. **Auto mic handling**: ranked mic auto-selection when the default device
-   dies/unplugs (recorder.ensure_alive already revives — add device fallback
-   and a specific "mic gone" toast naming the device).
-4. **Auto-update**: check GitHub Releases in the background, download, swap on
-   next idle/restart; defer while dictating. Wispr auto-updates silently after
-   1 h idle. (Our versioned-filename release flow already supports this.)
-5. **Session ceiling with auto-submit** at max_seconds (we hard-stop today —
-   type what we have instead of dropping it) + warning chime a minute before.
+- ✅ **Crash-safe audio** — recording spills to disk on a writer thread; an
+  interrupted dictation is transcribed at next launch and delivered via
+  clipboard + History.
+- ✅ **Transcript history + paste-last** — local SQLite log (app, time, text),
+  tray ▸ History… window with search/copy/clear, `Shift+Alt+Z` paste-last,
+  `Shift+Alt+X` copy-last, retention setting (forever / N hours / off).
+- ✅ **Auto mic fallback** — dead device → system default → any working input,
+  with a toast naming the new mic.
+- ✅ **Auto-update** — background GitHub Releases check, downloads quietly,
+  applies ONLY on tray ▸ "Restart to update"; upgrades carry the setup-done
+  flag so users are never re-onboarded.
+- ✅ **Session ceiling** — a one-minute warning toast, then auto-finish (the
+  audio is typed, not dropped).
+- ✅ **Context awareness (lite), locally** — foreground app + window-title
+  proper nouns → per-utterance hotword boost; chat apps lose the trailing
+  period. (Wispr uploads screenshots for this; Svara reads it locally.)
+- ✅ **Cleanup levels** — None / Light / Medium / High dial in the tray;
+  Medium adds "scratch that" backtrack rules; High engages the local LLM
+  when Ollama is reachable.
+- ✅ **Transforms / Polish** — `Win+Alt+P` rewrites the selected text in
+  place via local LLM; original saved to History; target app's Ctrl+Z undoes.
+- ✅ **Per-app styles** — `context.styles` maps exe → tone hint for the LLM.
+- ✅ **Whisper mode** — tray toggle, 3× software gain for speak-softly use.
+- ✅ **Scratchpad** — `Win+Alt+S` toggle note window, autosaves locally.
+- ✅ **Command mode** — optional hold-and-speak key (`shortcuts.command_key`):
+  "make this friendlier" applies to the selection. Off by default.
+- ✅ **Hotkey picker + dictionary quick-add** in the Svara window (live
+  rebind, no restart; add-word box feeding dictionary.yaml).
+- ✅ **Spoken bullets** — "bullet point" → "\n- " (spoken-punctuation vocab).
 
-## Phase 2 — accuracy moat (LOCAL, the big differentiator)
+## Still open (the honest tail)
 
-6. **Context awareness, locally**: read the foreground app/window title +
-   UIA cursor-adjacent text; feed proper nouns into hotwords per-dictation;
-   apply per-app rules (no trailing period in Slack/WhatsApp-web, lowercase
-   continuation mid-sentence). Wispr sends screenshots to the cloud for this —
-   we can headline "same feature, nothing leaves your machine".
-7. **Auto-learned dictionary**: diff what the user edits right after an
-   injection (clipboard/UIA), frequency-filter against common words, suggest
-   "add ‹Svara› to your dictionary?" toast — the retention loop that makes it
-   feel like it learns you.
-8. **List formatting rules**: "one… two… three…" → numbered list; "bullet…"
-   → dashes. Rules first; sLLM only for the messy cases.
-
-## Phase 3 — the AI layer (sLLM via existing Ollama integration)
-
-9. **Cleanup levels** (None/Light/Medium/High) instead of the binary LLM
-   toggle — Light = fillers+punctuation (rules), High = full rewrite (LLM).
-   Keep the verbatim transcript recoverable (Wispr had to ship "undo AI
-   edits" after complaints — learn from that).
-10. **Backtrack**: "meet at 2, actually 3" → "meet at 3" (trigger-word rules
-    first, sLLM for robustness).
-11. **Transforms / Polish**: select text anywhere → hotkey → rewrite in place
-    (concise/clarity/tone), diff preview, up to N custom prompt slots. This is
-    Wispr's flagship paid feature; ours rides free on Ollama.
-12. **Per-app styles**: app → category (personal/work/email) → tone applied in
-    the LLM cleanup prompt. English-only at Wispr too, so no pressure on i18n.
-
-## Phase 4 — surface & polish
-
-13. **Settings UI for the dictionary** (table editor in the Svara window, not
-    just YAML) + hotkey capture UI ("press your shortcut") like Wispr's
-    onboarding.
-14. **Whisper mode**: input gain boost + VAD threshold preset for whispering
-    at ~1 cm — mostly-free feature with outsized wow.
-15. **Scratchpad/notes window** with dictation-aware version history —
-    offline-first where Wispr requires cloud sync.
-16. **Command mode** (speak an instruction, act on selection) — after
-    Transforms; Styles covers most of its value.
+1. **Auto-learned dictionary** — detect the user's own corrections after
+   injection (UIA/clipboard diffing) and suggest additions. Needs a careful
+   design to avoid being creepy or wrong; deliberately not faked with a
+   heuristic in v0.4.0.
+2. **UIA cursor-adjacent text context** — reading the textbox around the
+   caret (not just the window title) for casing-aware continuations.
+3. **Numbered-list auto-detect** ("one… two… three…" → 1. 2. 3.) — the
+   conservative spoken-bullet vocab shipped; the auto-detector needs sLLM
+   judgment to avoid false positives.
+4. **Dictionary table editor** — quick-add + YAML shipped; a full table UI
+   remains cosmetic polish.
+5. **Transforms diff preview & custom transform slots** — Polish + voice
+   command shipped; multi-slot custom prompts with diff view are next.
 
 ## Non-goals for now
 

@@ -38,6 +38,13 @@ def state_path() -> Path:
     return base_dir() / "state.json"
 
 
+def dictionary_path() -> Path:
+    """The personal dictionary (words/replacements/snippets). Its own file —
+    unlike config.yaml it's machine-edited (quick-add, future auto-learn), and
+    round-tripping YAML would destroy config.yaml's inline documentation."""
+    return base_dir() / "dictionary.yaml"
+
+
 def logs_dir() -> Path:
     d = base_dir() / "logs"
     try:

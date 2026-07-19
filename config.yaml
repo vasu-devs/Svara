@@ -52,6 +52,11 @@ injection:
   restore_clipboard: true     # (paste method) restore your old clipboard afterwards
 
 cleanup:
+  level: light                # ONE dial for cleanup intensity:
+                              #   none   = verbatim (your dictionary rules still apply)
+                              #   light  = remove um/uh/erm (default)
+                              #   medium = + "scratch that" retractions
+                              #   high   = + AI rewrite when Ollama is running
   strip_fillers: true         # cheap regex removal of um/uh/erm...
   expressive:                 # 🔊 voice-aware formatting
     enabled: true
@@ -70,6 +75,8 @@ cleanup:
       Output ONLY the cleaned text.
 
 dictionary:                   # YOUR words — tray icon ▸ Dictionary ▸ Edit… then Reload
+                              # (quick-adds land in dictionary.yaml next to this file;
+                              #  both are merged at load)
   words: []                   # names/jargon Whisper should recognize better, e.g.:
                               #   words: [Svara, Vasudev, CTranslate2, Wispr Flow]
   replacements: {}            # exact fixes applied after transcription (case-insensitive,
@@ -80,7 +87,41 @@ dictionary:                   # YOUR words — tray icon ▸ Dictionary ▸ Edit
                               #     "my email": "vasu@example.com"
                               #     "sign off": "Best,\nVasudev"
   spoken_punctuation: false   # true → saying "period" / "comma" / "new line" /
-                              #   "question mark" types . , ⏎ ? instead of the words
+                              #   "question mark" / "bullet point" types . , ⏎ ? -
+
+history:
+  enabled: true               # keep a local, searchable log of every dictation
+                              #   (tray ▸ History… · 100% on your machine: history.db)
+  retention_hours: 0          # 0 = keep forever · 24 = auto-delete after a day
+
+context:                      # look at the app you're dictating INTO (all local)
+  enabled: true
+  title_hotwords: true        # window-title names/nouns boost recognition, e.g. the
+                              #   repo or person's name in the title bar
+  chat_no_period: true        # drop the trailing period in chat apps (reads better)
+  chat_apps: [slack.exe, discord.exe, whatsapp.exe, telegram.exe, ms-teams.exe, signal.exe]
+  styles: {}                  # per-app tone for the AI cleanup, e.g.:
+                              #   styles: { "slack.exe": "casual and friendly",
+                              #             "outlook.exe": "professional email tone" }
+
+shortcuts:                    # global chords (pynput syntax; <cmd> = Win key)
+  paste_last: "<shift>+<alt>+z"   # re-paste the last dictation (chat ate it?)
+  copy_last: "<shift>+<alt>+x"    # copy the last dictation instead
+  polish: "<cmd>+<alt>+p"         # rewrite SELECTED text in place (needs Ollama)
+  scratchpad: "<cmd>+<alt>+s"     # toggle the scratchpad note window
+  command_key: null               # e.g. f9 — HOLD it and SAY what to do with the
+                                  #   selected text ("make this friendlier")
+
+update:
+  check: true                 # check GitHub for new Svara releases in the background;
+                              #   updates only ever apply when YOU click "Restart to
+                              #   update" in the tray
+  hours: 24
+
+transforms:
+  polish_prompt: null         # custom instruction for the Polish shortcut (null = default:
+                              #   clearer + more concise, same meaning and tone)
+  max_chars: 8000             # selection size limit
 
 streaming:
   mode: live                  # live    = words are TYPED at your cursor in real time as you talk
@@ -93,6 +134,8 @@ audio:
   sample_rate: 16000
   block_size: 512
   input_device: null          # null = default mic; see: python -m mywhisper --list-devices
+  gain: 1.0                   # software mic boost (tray ▸ Whisper mode toggles 3.0
+                              #   for speaking-softly-at-2am dictation)
 
 ui:
   sounds: true                # beep on record start/stop

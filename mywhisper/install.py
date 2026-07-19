@@ -71,6 +71,15 @@ def _installed_version() -> str | None:
         return None
 
 
+def _stamp_of(exe: Path, version: str) -> str | None:
+    """The setup-done stamp __main__._exe_stamp() would compute for this exe."""
+    try:
+        st = exe.stat()
+        return f"{version}:{st.st_size}:{st.st_mtime_ns}"
+    except OSError:
+        return None
+
+
 def _write_manifest(version: str) -> None:
     try:
         (install_dir() / MANIFEST).write_text(
@@ -166,6 +175,17 @@ def ensure_installed(splash=None) -> bool:
         splash("Installing Svara (one time) — moving in to its permanent home…")
     try:
         install_dir().mkdir(parents=True, exist_ok=True)
+        # Upgrade carry-forward: if setup was completed for the exe we're about
+        # to replace, the user shouldn't be re-onboarded just because the
+        # version bumped — restamp the flag for the new exe after the copy.
+        flag = install_dir() / ".svara_ready"
+        carry_setup = False
+        try:
+            if have and dst.is_file() and flag.is_file():
+                carry_setup = (flag.read_text(encoding="utf-8").strip()
+                               == _stamp_of(dst, have))
+        except OSError:
+            pass
         same = False
         try:
             s, d = src.stat(), dst.stat()
@@ -179,6 +199,14 @@ def ensure_installed(splash=None) -> bool:
             os.replace(tmp, dst)  # atomic: never a half-written Svara.exe
         _migrate_user_files(src.parent, dst.parent)
         _write_manifest(__version__)
+        if carry_setup:
+            new_stamp = _stamp_of(dst, __version__)
+            if new_stamp:
+                try:
+                    flag.write_text(new_stamp, encoding="utf-8")
+                    log.info("upgrade — carrying setup-done forward (no re-setup)")
+                except OSError:
+                    pass
         log.info("installed Svara v%s → %s", __version__, dst)
     except OSError:
         # PermissionError here usually means the installed copy is running

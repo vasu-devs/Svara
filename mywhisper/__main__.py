@@ -179,11 +179,19 @@ def main() -> int:
                     None if saved["language"] == "auto" else saved["language"])
             if saved.get("streaming_mode"):
                 cfg["streaming"]["mode"] = saved["streaming_mode"]
+            if saved.get("cleanup_level"):
+                cfg["cleanup"]["level"] = saved["cleanup_level"]
+            if saved.get("whisper_mode"):
+                cfg["audio"]["whisper_mode"] = True
+            if saved.get("hotkey"):
+                cfg["recording"]["hotkey"] = saved["hotkey"]
         except (OSError, ValueError):
             pass
 
-    # Personal dictionary → decode-time recognition boost (names, jargon).
-    dict_words = (cfg.get("dictionary") or {}).get("words") or []
+    # Personal dictionary (config section + dictionary.yaml overlay) →
+    # decode-time recognition boost (names, jargon).
+    cfg["dictionary"] = config_mod.merged_dictionary(cfg)
+    dict_words = cfg["dictionary"].get("words") or []
     if dict_words:
         cfg["model"]["hotwords"] = ", ".join(str(w) for w in dict_words)
 

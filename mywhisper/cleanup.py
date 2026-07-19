@@ -9,6 +9,7 @@ Two stages, both optional:
 import json
 import logging
 import re
+import time
 import urllib.error
 import urllib.request
 
@@ -26,6 +27,19 @@ def strip_fillers(text: str) -> str:
     return out.strip()
 
 
+# Backtrack: "send the email... scratch that, delete it" → "delete it".
+# Deliberately limited to explicit retraction phrases — resolving "at 2,
+# actually 3" correctly needs a language model, and a rule that guesses wrong
+# silently destroys words the user said on purpose.
+_BACKTRACK_RE = re.compile(
+    r"[^.!?\n]*?\b(?:scratch|strike|forget) that\b[,.!?]?\s*", re.IGNORECASE)
+
+
+def apply_backtrack(text: str) -> str:
+    out = _BACKTRACK_RE.sub("", text)
+    return out.strip() if out.strip() else text  # never erase everything
+
+
 # Spoken-punctuation vocabulary: (phrase, exact replacement). The replacement
 # includes its own spacing — trailing marks glue left ("hello. "), opening
 # marks glue right (" (") — so one pass needs no cleanup afterwards.
@@ -38,6 +52,7 @@ _SPOKEN_PUNCT = [
     ("open paren", " ("), ("close paren", ") "), ("dash", " — "),
     ("ellipsis", "… "), ("ampersand", " & "),
     ("at sign", "@"), ("hashtag", " #"), ("percent sign", "% "),
+    ("bullet point", "\n- "), ("next bullet", "\n- "),
 ]
 
 
@@ -92,22 +107,44 @@ class Personalizer:
 class LlmCleanup:
     def __init__(self, llm_cfg: dict):
         self.cfg = llm_cfg
+        self._reachable: bool | None = None  # cached Ollama probe
+        self._probed_at = 0.0
 
     @property
     def enabled(self) -> bool:
         return bool(self.cfg["enabled"])
 
-    def run(self, text: str) -> str:
-        """Send text through the local Ollama model. Falls back to input on error."""
+    def reachable(self, ttl_s: float = 600.0) -> bool:
+        """Is Ollama answering? Cached — probing per-utterance would add
+        latency, and 'high' cleanup asks this on every dictation."""
+        now = time.monotonic()
+        if self._reachable is not None and now - self._probed_at < ttl_s:
+            return self._reachable
+        self._probed_at = now
+        try:
+            with urllib.request.urlopen(self.cfg["url"].rstrip("/") + "/api/tags",
+                                        timeout=2.0):
+                self._reachable = True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            self._reachable = False
+        return self._reachable
+
+    def run_prompt(self, system_prompt: str, text: str,
+                   style_hint: str | None = None) -> str | None:
+        """One chat call with an arbitrary system prompt. Returns None on any
+        failure — callers decide whether that means "fall back to the input"
+        (dictation cleanup) or "tell the user" (transforms)."""
         if len(text) < 4:
             return text
+        if style_hint:
+            system_prompt = f"{system_prompt}\n\nTone/style: {style_hint}"
         payload = {
             "model": self.cfg["model"],
             "stream": False,
             "keep_alive": self.cfg.get("keep_alive", "10m"),
             "options": {"temperature": 0.1},
             "messages": [
-                {"role": "system", "content": self.cfg["prompt"]},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": text},
             ],
         }
@@ -125,23 +162,60 @@ class LlmCleanup:
             cleaned = cleaned.strip("`").strip()
             if cleaned.startswith('"') and cleaned.endswith('"') and len(cleaned) > 2:
                 cleaned = cleaned[1:-1]
-            return cleaned or text
+            return cleaned or None
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, OSError) as e:
             log.warning("LLM cleanup unavailable (%s) — using raw transcript", e)
-            return text
+            self._reachable, self._probed_at = False, time.monotonic()
+            return None
+
+    def run(self, text: str, style_hint: str | None = None) -> str:
+        """Dictation cleanup: LLM pass, falling back to the input on error."""
+        out = self.run_prompt(self.cfg["prompt"], text, style_hint=style_hint)
+        return out if out is not None else text
+
+
+LEVELS = ("none", "light", "medium", "high")
 
 
 class CleanupPipeline:
+    """Cleanup intensity is one dial (Wispr-style), not scattered toggles:
+
+    none   → verbatim (personal dictionary rules still apply — they're the
+             user's own words, not "cleanup")
+    light  → + filler stripping (default; matches pre-0.4 behavior)
+    medium → + backtrack ("scratch that" retractions)
+    high   → + LLM rewrite when Ollama is reachable (else behaves as medium)
+
+    The old strip_fillers/llm.enabled keys still work as overrides so
+    existing configs keep their exact behavior.
+    """
+
     def __init__(self, cleanup_cfg: dict, dict_cfg: dict | None = None):
+        self.level = str(cleanup_cfg.get("level", "light")).lower()
+        if self.level not in LEVELS:
+            log.warning("unknown cleanup level %r — using 'light'", self.level)
+            self.level = "light"
         self.strip_fillers_enabled = bool(cleanup_cfg["strip_fillers"])
         self.llm = LlmCleanup(cleanup_cfg["llm"])
         self.personalizer = Personalizer(dict_cfg)
 
-    def run(self, text: str) -> str:
-        if self.strip_fillers_enabled:
+    def set_level(self, level: str):
+        if level in LEVELS:
+            self.level = level
+            log.info("cleanup level → %s", level)
+
+    def _rank(self) -> int:
+        return LEVELS.index(self.level)
+
+    def run(self, text: str, style_hint: str | None = None) -> str:
+        if self._rank() >= 1 and self.strip_fillers_enabled:
             text = strip_fillers(text)
-        if self.llm.enabled and text:
-            text = self.llm.run(text)
+        if self._rank() >= 2:
+            text = apply_backtrack(text)
+        use_llm = text and (self.llm.enabled
+                            or (self._rank() >= 3 and self.llm.reachable()))
+        if use_llm:
+            text = self.llm.run(text, style_hint=style_hint)
         # Personal rules run LAST: the user's exact fixes must always win,
         # even over an LLM that "helpfully" reverts a name's spelling.
         return self.personalizer.apply(text)

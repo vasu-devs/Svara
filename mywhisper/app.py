@@ -15,13 +15,18 @@ import time
 
 import numpy as np
 
+from . import appcontext
 from .audio import Recorder
 from .cleanup import CleanupPipeline
+from .history import History
 from .hotkey import create_listener
 from .injector import TextInjector
 from .overlay import Overlay
+from .quickkeys import QuickKeys
 from .transcriber import Transcriber
+from .transforms import CommandMode, Transformer
 from .tray import Tray
+from .updater import Updater
 
 log = logging.getLogger(__name__)
 
@@ -85,9 +90,31 @@ class MyWhisperApp:
         self._voice_rms: float | None = None  # your speaking-loudness baseline
 
         self._model_switch = False
-        self.recorder = Recorder(cfg["audio"], cfg["recording"])
+        self._active_app = ""      # exe about to receive the dictation
+        self._active_title = ""
+        self._cap_warned = False   # one max-duration warning per recording
+        self.recorder = Recorder(
+            cfg["audio"], cfg["recording"],
+            on_device_change=lambda name: self._notify(
+                f"Microphone changed — now listening on: {name}"))
+        from .paths import logs_dir
+        self.recorder.set_spill_path(logs_dir() / "recovery.raw")
         self.injector = TextInjector(cfg["injection"])
         self.cleanup = CleanupPipeline(cfg["cleanup"], cfg.get("dictionary"))
+        self.history = History(cfg.get("history"))
+        self.whisper_mode = bool(cfg["audio"].get("whisper_mode", False))
+        if self.whisper_mode:
+            self.recorder.gain = self.WHISPER_GAIN
+        self.updater = Updater(notify=self._notify)
+        self.transformer = Transformer(self.cleanup.llm, cfg.get("transforms"),
+                                       history=self.history,
+                                       notify=self._notify)
+        self.quickkeys = QuickKeys(cfg.get("shortcuts"), {
+            "paste_last": self.paste_last,
+            "copy_last": self.copy_last,
+            "polish": self.transformer.polish,
+            "scratchpad": self.show_scratchpad,
+        })
         self.current_theme = cfg["ui"].get("theme", "minimal-dark")
         self.current_wave = cfg["ui"].get("wave", "strings")
         self.current_bg = cfg["ui"].get("bg", "gradient")
@@ -117,6 +144,19 @@ class MyWhisperApp:
             on_lock=self.on_lock,
             is_recording=lambda: self.recorder.recording,
         )
+        # Optional voice-command key (off unless shortcuts.command_key is set):
+        # hold it, say "make this friendlier", release — applied to selection.
+        self.command_mode = None
+        cmd_key = (cfg.get("shortcuts") or {}).get("command_key")
+        if cmd_key:
+            try:
+                self.command_mode = CommandMode(
+                    cmd_key, cfg["recording"], self.recorder,
+                    lambda: self.transcriber, self.transformer,
+                    overlay=self.overlay, notify=self._notify)
+            except Exception:  # noqa: BLE001 — a bad key must not kill the app
+                log.warning("command mode disabled (bad key %r?)", cmd_key,
+                            exc_info=True)
         self.tray = Tray(self) if (cfg["ui"]["tray"] and not no_tray) else None
 
     # -- properties for the tray -------------------------------------------
@@ -363,6 +403,117 @@ class MyWhisperApp:
         finally:
             k32.CloseHandle(handle)
 
+    # -- notifications / quick actions ---------------------------------------
+
+    def _notify(self, message: str):
+        if self.tray:
+            self.tray.notify(message)
+        else:
+            log.info("notify: %s", message)
+
+    def paste_last(self):
+        """Shift+Alt+Z (configurable): re-paste the last dictation at the
+        cursor — the rescue for a chat that ate your message."""
+        text = self.history.last()
+        if not text:
+            self._notify("No dictation in history yet.")
+            return
+        from .injector import paste_text, wait_modifiers_released
+        wait_modifiers_released()
+        paste_text(text, restore=self.cfg["injection"]["restore_clipboard"])
+
+    def copy_last(self):
+        text = self.history.last()
+        if not text:
+            self._notify("No dictation in history yet.")
+            return
+        from .injector import _clipboard_set
+        if _clipboard_set(text):
+            self._notify("Last dictation copied to the clipboard.")
+
+    # -- whisper mode ---------------------------------------------------------
+
+    WHISPER_GAIN = 3.0
+
+    def toggle_whisper_mode(self):
+        """Boost mic gain so speaking at a whisper still transcribes well
+        (late-night dictation, open offices). Off restores the configured
+        base gain, so a custom audio.gain survives the round-trip."""
+        self.whisper_mode = not getattr(self, "whisper_mode", False)
+        base = float(self.cfg["audio"].get("gain", 1.0) or 1.0)
+        self.recorder.gain = self.WHISPER_GAIN if self.whisper_mode else base
+        self._save_state(whisper_mode=self.whisper_mode)
+        self._refresh_tray()
+        log.info("whisper mode %s", "on" if self.whisper_mode else "off")
+        self._notify("Whisper mode ON — speak softly, keep the mic close."
+                     if self.whisper_mode else "Whisper mode off.")
+
+    # -- cleanup level --------------------------------------------------------
+
+    def set_cleanup_level(self, level: str):
+        self.cleanup.set_level(level)
+        self.cfg["cleanup"]["level"] = level
+        self._save_state(cleanup_level=level)
+        self._refresh_tray()
+
+    # -- hotkey rebind (live) -------------------------------------------------
+
+    def set_hotkey(self, spec: str):
+        """Switch the dictation key without a restart. The old listener stops
+        first; if the new one can't start, the old one comes back."""
+        if spec == self.cfg["recording"]["hotkey"]:
+            return
+        old = self.hotkey
+        try:
+            old.stop()
+        except Exception:  # noqa: BLE001
+            pass
+        rec_cfg = dict(self.cfg["recording"])
+        rec_cfg["hotkey"] = spec
+        try:
+            new = create_listener(
+                rec_cfg,
+                on_start=self.start_recording,
+                on_commit=self.stop_recording,
+                on_cancel=self.cancel_recording,
+                on_lock=self.on_lock,
+                is_recording=lambda: self.recorder.recording,
+            )
+            new.start()
+        except Exception:  # noqa: BLE001
+            log.exception("hotkey %r failed — keeping the old one", spec)
+            self._notify(f"Couldn't use '{spec}' as the hotkey — keeping "
+                         f"{self.cfg['recording']['hotkey']}.")
+            try:
+                old.start()
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        self.hotkey = new
+        self.cfg["recording"]["hotkey"] = spec
+        self._save_state(hotkey=spec)
+        self._refresh_tray()
+        self._notify(f"Hotkey changed — double-tap {spec} to dictate.")
+
+    # -- updates --------------------------------------------------------------
+
+    def check_updates_now(self):
+        threading.Thread(target=lambda: self.updater.check_and_stage(quiet=False),
+                         daemon=True, name="update-check").start()
+
+    def apply_update(self):
+        self.updater.apply(self.shutdown)
+
+    # -- windows (history / scratchpad) --------------------------------------
+
+    def show_history(self):
+        from .howto_ui import show_history
+        show_history(self)
+
+    def show_scratchpad(self):
+        from .howto_ui import show_scratchpad
+        show_scratchpad(self)
+
     # -- start at login ------------------------------------------------------
 
     @property
@@ -393,47 +544,78 @@ class MyWhisperApp:
 
     # -- personal dictionary (words, replacements, snippets) -----------------
 
-    _DICT_TEMPLATE = """
-# --- Personal dictionary (added by Svara) -------------------------------
-# After editing: tray icon > Dictionary > Reload  (no restart needed)
-dictionary:
-  words: []                   # names/jargon to recognize better, e.g. [Svara, Vasudev]
-  replacements: {}            # exact fixes, e.g. { "swara": "Svara", "get hub": "GitHub" }
-  snippets: {}                # say the trigger, type the block, e.g.
-                              #   "my email": "you@example.com"
-  spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newline
+    _DICT_TEMPLATE = """\
+# Svara's personal dictionary — YOUR words. Reload from the tray after editing.
+# NOTE: Svara rewrites this file for quick-adds; hand-written comments here
+# may not survive. Long-form notes belong in config.yaml.
+words: []                   # names/jargon to recognize better, e.g. [Svara, Vasudev]
+replacements: {}            # exact fixes, e.g. { "swara": "Svara", "get hub": "GitHub" }
+snippets: {}                # say the trigger, type the block, e.g.
+                            #   "my email": "you@example.com"
+spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newline
 """
 
     def edit_dictionary(self):
-        """Open config.yaml in the user's editor. Configs written before
-        v0.3.0 have no dictionary section — append the documented template
-        once, so there's something to fill in rather than a mystery format."""
-        from .paths import ensure_config
-        path = ensure_config()
+        """Open dictionary.yaml in the user's editor (seeded with a template
+        on first use)."""
+        from .paths import dictionary_path
+        path = dictionary_path()
         try:
-            text = path.read_text(encoding="utf-8") if path.is_file() else ""
-            if "dictionary:" not in text:
-                path.write_text(text.rstrip() + "\n" + self._DICT_TEMPLATE,
-                                encoding="utf-8")
+            if not path.is_file():
+                path.write_text(self._DICT_TEMPLATE, encoding="utf-8")
         except OSError:
             log.debug("could not seed dictionary template", exc_info=True)
         try:
             os.startfile(str(path))  # noqa: S606 — user-initiated
         except OSError:
-            log.exception("could not open config.yaml")
+            log.exception("could not open dictionary.yaml")
 
-    def reload_dictionary(self):
-        """Re-read config.yaml and apply the dictionary sections live — no
-        restart. Covers: recognition boost (hotwords), replacements, snippets,
-        spoken punctuation."""
+    def add_dictionary_word(self, word: str):
+        """Quick-add from the Svara window: one word/phrase → dictionary.yaml
+        → live reload. The retention loop that makes Svara learn your words."""
+        word = (word or "").strip().strip(",")
+        if not word:
+            return
+        import yaml
+
+        from .paths import dictionary_path
+        path = dictionary_path()
+        data = {}
+        try:
+            if path.is_file():
+                data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+            if not isinstance(data, dict):
+                data = {}
+        except (OSError, yaml.YAMLError):
+            data = {}
+        words = list(data.get("words") or [])
+        if word.lower() in (str(w).lower() for w in words):
+            self._notify(f"'{word}' is already in your dictionary.")
+            return
+        words.append(word)
+        data["words"] = words
+        try:
+            path.write_text(
+                yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+                encoding="utf-8")
+        except OSError:
+            log.exception("could not write dictionary.yaml")
+            return
+        self.reload_dictionary(quiet=True)
+        self._notify(f"Added '{word}' — Svara will recognize it from now on.")
+
+    def reload_dictionary(self, quiet: bool = False):
+        """Re-read config.yaml + dictionary.yaml and apply live — no restart.
+        Covers: recognition boost (hotwords), replacements, snippets, spoken
+        punctuation."""
         from . import config as config_mod
         from .paths import ensure_config
         try:
             fresh = config_mod.load(ensure_config())
+            dcfg = config_mod.merged_dictionary(fresh)
         except Exception:  # noqa: BLE001
             log.exception("dictionary reload failed")
             return
-        dcfg = fresh.get("dictionary") or {}
         self.cfg["dictionary"] = dcfg
         self.cleanup.personalizer.reload(dcfg)
         hot = self.cleanup.personalizer.hotwords
@@ -444,9 +626,9 @@ dictionary:
                    + len(dcfg.get("snippets") or {}))
         log.info("dictionary reloaded — %d words boosted, %d text rules",
                  n_words, n_rules)
-        if self.tray:
-            self.tray.notify(f"Dictionary reloaded — {n_words} words boosted, "
-                             f"{n_rules} replacement/snippet rules active.")
+        if not quiet:
+            self._notify(f"Dictionary reloaded — {n_words} words boosted, "
+                         f"{n_rules} replacement/snippet rules active.")
 
     def _save_state(self, **kv):
         from .paths import state_path
@@ -512,6 +694,17 @@ dictionary:
     def start_recording(self):
         if self.paused or self.recorder.recording:
             return
+        self._cap_warned = False
+        # Context snapshot: which app gets this dictation (per-app rules,
+        # history), and its window title's proper nouns → recognition boost.
+        ctx_cfg = self.cfg.get("context") or {}
+        self._active_app, self._active_title = ("", "")
+        if ctx_cfg.get("enabled", True):
+            self._active_app, self._active_title = appcontext.foreground()
+            if ctx_cfg.get("title_hotwords", True):
+                words = appcontext.title_hotwords(self._active_title)
+                self.transcriber.cfg["context_hotwords"] = (
+                    ", ".join(words) if words else None)
         self.recorder.start()
         self.overlay.show("listening")
         # No sound here by design — the pill's appearance is the "you're being
@@ -590,6 +783,7 @@ dictionary:
             # keep_tail: a cancel is usually tap 1 of a double-tap — hand its
             # audio to the pre-roll so the locked recording hears everything
             audio = self.recorder.stop(keep_tail=True)
+        self.recorder.discard_recovery()  # cancelled — nothing to recover
         self._stream_ctx = None  # stops the streamer thread
         self.overlay.hide()
         if self.tray:
@@ -643,7 +837,15 @@ dictionary:
                 continue
             if self.recorder.elapsed() > rec_cfg["max_seconds"]:
                 log.info("max duration reached — stopping")
+                self._notify("Time limit reached — typing what you said.")
                 self.stop_recording()
+            elif (not self._cap_warned
+                    and rec_cfg["max_seconds"] > 90
+                    and self.recorder.elapsed()
+                    > rec_cfg["max_seconds"] - 60):
+                self._cap_warned = True
+                self._notify("One minute of recording time left — Svara will "
+                             "finish and type automatically at the limit.")
             elif (
                 rec_cfg["mode"] == "press_to_toggle"
                 and auto["enabled"]
@@ -720,6 +922,7 @@ dictionary:
                                 words, flags)[len(committed):len(stable)]
                             self.injector.inject_stream(" ".join(styled) + " ")
                             committed.extend(new)
+                            ctx.setdefault("all_typed", []).extend(styled)
                             ctx["typed_total"] += len(new)
                             self.session_words += len(new)
                         last_words = words
@@ -741,6 +944,24 @@ dictionary:
                 except Exception:  # noqa: BLE001
                     log.debug("streaming pass failed", exc_info=True)
             time.sleep(max(0.05, interval - (time.perf_counter() - t_start)))
+
+    def _strip_chat_period(self, text: str) -> str:
+        """Chat apps read a trailing period as passive-aggressive — drop it
+        when the focused app is a messenger (Wispr-parity per-app rule)."""
+        ctx = self.cfg.get("context") or {}
+        if not ctx.get("chat_no_period", True) or not self._active_app:
+            return text
+        chat = {a.lower() for a in (ctx.get("chat_apps") or [])}
+        if self._active_app not in chat:
+            return text
+        t = text.rstrip()
+        if t.endswith(".") and not t.endswith(".."):
+            return t[:-1]
+        return text
+
+    def _record_history(self, text: str):
+        self.history.record(text, app=self._active_app)
+        self.recorder.discard_recovery()  # typed successfully — crash file obsolete
 
     def _worker(self):
         """Transcribe → clean → inject, in arrival order."""
@@ -766,10 +987,12 @@ dictionary:
                     committed = (ctx or {}).get("committed", [])
                     flags = self._word_caps_flags(segs, window, update=True)
                     remainder = self._apply_caps(words, flags)[len(committed):]
-                    tail = " ".join(remainder)
+                    tail = self._strip_chat_period(" ".join(remainder))
                     n = self.injector.inject(tail) if tail else 0
                     self.session_words += len(remainder)
                     self.overlay.hide()
+                    all_typed = (ctx or {}).get("all_typed", []) + remainder
+                    self._record_history(" ".join(all_typed))
                     log.info("✓ %.1fs audio → live-typed, +%d final chars in %.2fs",
                              dur, n, t_stt)
                     continue
@@ -786,11 +1009,15 @@ dictionary:
                     (seg_text.upper() if loud else seg_text)
                     for (seg_text, _s, _e), loud in zip(segs, seg_flags))
                 t0 = time.perf_counter()
-                text = self.cleanup.run(text)
+                style = ((self.cfg.get("context") or {}).get("styles")
+                         or {}).get(self._active_app)
+                text = self.cleanup.run(text, style_hint=style)
+                text = self._strip_chat_period(text)
                 t_clean = time.perf_counter() - t0
                 n = self.injector.inject(text)
                 self.session_words += len(text.split())
                 self.overlay.hide()
+                self._record_history(text)
                 preview = text if len(text) <= 80 else text[:77] + "…"
                 log.info(
                     "✓ %.1fs audio → %d chars in %.2fs stt + %.2fs cleanup | %s",
@@ -802,9 +1029,51 @@ dictionary:
 
     # -- lifecycle -------------------------------------------------------------------
 
+    def _recover_lost_dictation(self):
+        """A recovery file at boot = the last session died mid-dictation.
+        Read+delete synchronously (before any new recording can overwrite
+        it), transcribe in the background, deliver via clipboard + history."""
+        from .paths import logs_dir
+        path = logs_dir() / "recovery.raw"
+        try:
+            if not path.is_file() or path.stat().st_size < self.recorder.sr * 4:
+                return  # nothing, or under ~1s of audio — not worth recovering
+            raw = path.read_bytes()
+            path.unlink()
+        except OSError:
+            return
+
+        def work():
+            try:
+                audio = np.frombuffer(raw, dtype=np.float32)
+                segs = self.transcriber.transcribe(audio)
+                text = " ".join(t for t, _, _ in segs).strip()
+                if not text:
+                    return
+                text = self.cleanup.run(text)
+                self.history.record(text, kind="recovered")
+                from .injector import _clipboard_set
+                _clipboard_set(text)
+                self._notify(f"Recovered your interrupted dictation "
+                             f"({len(text.split())} words) — it's on your "
+                             "clipboard and in History.")
+                log.info("recovered %.1fs of crashed dictation",
+                         len(audio) / self.recorder.sr)
+            except Exception:  # noqa: BLE001
+                log.debug("dictation recovery failed", exc_info=True)
+
+        threading.Thread(target=work, daemon=True, name="recovery").start()
+
     def run(self):
+        self._recover_lost_dictation()
         self.recorder.open()
         self.hotkey.start()
+        self.quickkeys.start()
+        if self.command_mode:
+            self.command_mode.start()
+        upd = self.cfg.get("update") or {}
+        if getattr(sys, "frozen", False) and upd.get("check", True):
+            self.updater.start_background_checks(float(upd.get("hours", 24)))
         threading.Thread(target=self._monitor, daemon=True, name="monitor").start()
         threading.Thread(target=self._worker, daemon=True, name="worker").start()
         threading.Thread(target=self._howto_signal_listener, daemon=True,
@@ -861,8 +1130,12 @@ dictionary:
             self.hotkey.stop()
         except Exception:  # noqa: BLE001
             pass
+        self.quickkeys.stop()
+        if self.command_mode:
+            self.command_mode.stop()
         self.recorder.close()
         self.overlay.stop()
+        self.history.close()
         if self.tray:
             self.tray.stop()
 

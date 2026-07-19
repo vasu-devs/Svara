@@ -9,7 +9,7 @@ import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/l
 // and CDN edges can keep serving an old cached response for that URL
 // indefinitely. A new version number means a genuinely new URL every time,
 // so a "fresh download" can never silently be a stale one.
-const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-0.2.1.exe";
+const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-0.4.0.exe";
 const GITHUB = "https://github.com/vasu-devs/Svara";
 
 const SPY = [

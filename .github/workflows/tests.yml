@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+    paths: ["mywhisper/**", "tests/**", "config.yaml", ".github/workflows/tests.yml"]
+  pull_request:
+    paths: ["mywhisper/**", "tests/**", "config.yaml"]
+
+jobs:
+  unit:
+    # windows-latest on purpose: the install/autostart tests exercise the real
+    # registry (HKCU, throwaway value names) and Windows path semantics.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      # Only what the unit-tested modules import — the heavy STT stack
+      # (faster-whisper/CUDA/sounddevice) is deliberately not exercised here.
+      - name: Install test dependencies
+        run: pip install pyyaml pynput
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v

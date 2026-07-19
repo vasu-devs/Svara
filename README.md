@@ -85,6 +85,26 @@ subscription, no telemetry, and it works offline.
 - **Always on, safe for your system.** Lives in the tray, restarts itself if it
   crashes, and uses a **poll-only** hotkey with no global keyboard hook, so it
   never interferes with your typing.
+- **Installs itself, survives every reboot.** First run copies Svara to
+  `%LOCALAPPDATA%\Svara`, registers start-with-Windows and a Start Menu entry.
+  Background **auto-update** downloads new releases; they apply only when you
+  click "Restart to update" — and upgrades never re-run setup.
+- **Your personal dictionary.** Boost recognition of names/jargon (hotwords),
+  exact replacement fixes, spoken snippets ("my email" → the address), spoken
+  punctuation and bullets. Quick-add from the Svara window; live reload.
+- **It knows where it's typing — locally.** The focused app's window title
+  feeds proper nouns into recognition per-dictation, and chat apps
+  (Slack/Discord/WhatsApp…) lose the passive-aggressive trailing period.
+  Nothing about your screen ever leaves the machine.
+- **Never lose a dictation.** Crash-safe audio recovery on the next launch, a
+  searchable local **History** window, and `Shift+Alt+Z` to re-paste the last
+  dictation into any field.
+- **AI on tap, not by default.** A Cleanup dial (None/Light/Medium/High),
+  "scratch that" retractions, `Win+Alt+P` **Polish** for selected text, per-app
+  tone styles, and an optional hold-and-speak **command key** — all powered by
+  your own local Ollama when you want them, plain rules when you don't.
+- **Whisper mode & scratchpad.** 3× mic gain for speaking softly at 2 a.m., and
+  a `Win+Alt+S` note window that autosaves locally.
 
 ## Requirements
 

@@ -10,6 +10,7 @@ Audio only ever lives in RAM, and only ~0.5 s of it outside a recording.
 
 import collections
 import logging
+import queue
 import threading
 import time
 
@@ -20,10 +21,14 @@ log = logging.getLogger(__name__)
 
 
 class Recorder:
-    def __init__(self, audio_cfg: dict, rec_cfg: dict):
+    def __init__(self, audio_cfg: dict, rec_cfg: dict,
+                 on_device_change=None):
         self.sr = int(audio_cfg["sample_rate"])
         self.block = int(audio_cfg["block_size"])
         self._block_ms = 1000.0 * self.block / self.sr
+        # Whisper mode: software gain so near-silent speech still clears the
+        # VAD and decodes well. Applied before anything sees the audio.
+        self.gain = float(audio_cfg.get("gain", 1.0) or 1.0)
 
         preroll_blocks = max(1, int(rec_cfg["preroll_ms"] / self._block_ms) + 1)
         self._ring: collections.deque = collections.deque(maxlen=preroll_blocks)
@@ -40,15 +45,63 @@ class Recorder:
         self._last_rms = 0.0  # for the overlay level meter
 
         self._device = audio_cfg["input_device"]
+        self._on_device_change = on_device_change
         self._stream = self._make_stream()
 
-    def _make_stream(self) -> sd.InputStream:
+        # Crash-safe spill: while recording, raw audio is streamed to disk on
+        # a writer thread (never in the audio callback), so a crash/power-loss
+        # mid-dictation can be recovered at next launch. ~64 KB/s.
+        self._spill_path = None
+        self._spill_q: queue.SimpleQueue = queue.SimpleQueue()
+        threading.Thread(target=self._spill_writer, daemon=True,
+                         name="audio-spill").start()
+
+    # -- crash-safe spill -----------------------------------------------------
+
+    def set_spill_path(self, path):
+        self._spill_path = path
+
+    def discard_recovery(self):
+        """The dictation was fully processed — its recovery file is obsolete."""
+        self._spill_q.put(("discard", None))
+
+    def _spill_writer(self):
+        fh = None
+        while True:
+            op, payload = self._spill_q.get()
+            try:
+                if op == "open" and self._spill_path:
+                    if fh:
+                        fh.close()
+                    fh = open(self._spill_path, "wb")
+                    for b in payload or []:
+                        fh.write(b.tobytes())
+                elif op == "data" and fh:
+                    fh.write(payload.tobytes())
+                elif op == "close" and fh:
+                    fh.flush()
+                    fh.close()
+                    fh = None
+                elif op == "discard":
+                    if fh:
+                        fh.close()
+                        fh = None
+                    if self._spill_path:
+                        try:
+                            self._spill_path.unlink(missing_ok=True)
+                        except OSError:
+                            pass
+            except OSError:
+                log.debug("audio spill failed (op=%s)", op, exc_info=True)
+                fh = None
+
+    def _make_stream(self, device=...) -> sd.InputStream:
         return sd.InputStream(
             samplerate=self.sr,
             channels=1,
             dtype="float32",
             blocksize=self.block,
-            device=self._device,
+            device=self._device if device is ... else device,
             callback=self._callback,
         )
 
@@ -70,6 +123,9 @@ class Recorder:
         """Reopen the stream if it died (headset unplugged, sleep/resume…).
 
         Always-on resilience: called periodically by the app's monitor thread.
+        If the configured device is gone, falls back to the system default,
+        then to any working input device — a dead mic must never mean
+        silently dead dictation.
         """
         try:
             if self._stream.active:
@@ -86,14 +142,36 @@ class Recorder:
             # is picked up.
             sd._terminate()
             sd._initialize()
-            self._stream = self._make_stream()
-            self._stream.start()
-            dev = sd.query_devices(self._stream.device, "input")
-            log.info("audio stream reopened on: %s", dev["name"])
-            return True
-        except Exception as e:  # noqa: BLE001
-            log.error("could not reopen audio stream (%s) — will retry", e)
-            return False
+        except Exception:  # noqa: BLE001
+            pass
+        candidates: list = [self._device]
+        if self._device is not None:
+            candidates.append(None)  # system default
+        try:
+            for idx, dev in enumerate(sd.query_devices()):
+                if dev.get("max_input_channels", 0) > 0 and idx not in candidates:
+                    candidates.append(idx)
+        except Exception:  # noqa: BLE001
+            pass
+        for cand in candidates:
+            try:
+                self._stream = self._make_stream(device=cand)
+                self._stream.start()
+                dev = sd.query_devices(self._stream.device, "input")
+                if cand != self._device:
+                    log.warning("mic fallback: now using '%s'", dev["name"])
+                    if self._on_device_change:
+                        try:
+                            self._on_device_change(dev["name"])
+                        except Exception:  # noqa: BLE001
+                            pass
+                else:
+                    log.info("audio stream reopened on: %s", dev["name"])
+                return True
+            except Exception as e:  # noqa: BLE001
+                log.debug("mic candidate %r failed: %s", cand, e)
+        log.error("no working microphone found — will retry")
+        return False
 
     # -- audio callback (keep it light!) -------------------------------------
 
@@ -101,11 +179,15 @@ class Recorder:
         if status:
             log.debug("audio status: %s", status)
         mono = indata[:, 0].copy()
+        if self.gain != 1.0:  # whisper mode — boost before anything sees it
+            np.multiply(mono, self.gain, out=mono)
+            np.clip(mono, -1.0, 1.0, out=mono)
         rms = float(np.sqrt(np.mean(mono * mono))) if len(mono) else 0.0
         self._last_rms = rms
         with self._lock:
             if self._recording:
                 self._rec.append(mono)
+                self._spill_q.put(("data", mono))
                 if rms > self._voice_threshold():
                     self._last_voice = time.monotonic()
                     self._speech_ms += self._block_ms
@@ -124,6 +206,7 @@ class Recorder:
             if self._recording:
                 return
             self._rec = list(self._ring)  # include the pre-roll
+            self._spill_q.put(("open", list(self._rec)))
             self._recording = True
             now = time.monotonic()
             self._started_at = now
@@ -150,6 +233,7 @@ class Recorder:
             if not self._recording:
                 return None
             self._recording = False
+            self._spill_q.put(("close", None))
             blocks, self._rec = self._rec, []
             self._ring.clear()
             if keep_tail:

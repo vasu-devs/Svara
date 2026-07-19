@@ -26,7 +26,7 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
-VK_RETURN, VK_TAB, VK_CONTROL, VK_V = 0x0D, 0x09, 0x11, 0x56
+VK_RETURN, VK_TAB, VK_CONTROL, VK_V, VK_C = 0x0D, 0x09, 0x11, 0x56, 0x43
 _MODIFIER_VKS = (0x10, 0x11, 0x12, 0x5B, 0x5C)  # shift, ctrl, alt, lwin, rwin
 
 ULONG_PTR = ctypes.c_size_t
@@ -193,6 +193,19 @@ def paste_text(text: str, restore: bool = True):
             time.sleep(0.5)
             _clipboard_set(old)
         threading.Thread(target=_restore, daemon=True).start()
+
+
+def copy_selection():
+    """Send Ctrl+C to the focused window — used by transforms to read the
+    current selection. Waits for the user's own chord to clear first so the
+    C doesn't land as part of their shortcut."""
+    wait_modifiers_released()
+    _send([
+        _key_event(vk=VK_CONTROL),
+        _key_event(vk=VK_C),
+        _key_event(vk=VK_C, flags=KEYEVENTF_KEYUP),
+        _key_event(vk=VK_CONTROL, flags=KEYEVENTF_KEYUP),
+    ])
 
 
 # --- Public façade ---------------------------------------------------------------

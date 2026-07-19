@@ -54,6 +54,16 @@ _thread_lock = threading.Lock()
 _thread_started = False
 
 
+def _request(kind: str, app, **kw) -> None:
+    global _thread_started
+    with _thread_lock:
+        if not _thread_started:
+            _thread_started = True
+            threading.Thread(target=_ui_main, daemon=True,
+                             name="howto-ui").start()
+    _queue.put((kind, app, kw))
+
+
 def show_howto(app, first_run: bool = False) -> None:
     """Request the Svara how-to/test window be (re)shown.
 
@@ -61,17 +71,23 @@ def show_howto(app, first_run: bool = False) -> None:
     celebratory copy. The live test is the REAL pipeline: double-tap the
     hotkey and the pill overlay appears while words stream into the textbox.
     """
-    global _thread_started
-    with _thread_lock:
-        if not _thread_started:
-            _thread_started = True
-            threading.Thread(target=_ui_main, daemon=True,
-                             name="howto-ui").start()
-    _queue.put((app, first_run))
+    _request("howto", app, first_run=first_run)
+
+
+def show_history(app) -> None:
+    """The dictation history browser (search / copy / clear)."""
+    _request("history", app)
+
+
+def show_scratchpad(app) -> None:
+    """The scratchpad note window (toggle: shows if hidden, hides if shown)."""
+    _request("scratchpad", app)
 
 
 def _ui_main():
-    """The one persistent UI thread — one Tk root for the process lifetime."""
+    """The one persistent UI thread — one Tk root for the process lifetime.
+    All Svara windows (how-to, history, scratchpad) are Toplevels served by
+    this root, requested through the queue from any thread."""
     import tkinter as tk
 
     root = tk.Tk()
@@ -80,17 +96,160 @@ def _ui_main():
     def _poll():
         try:
             while True:
-                app, first_run = _queue.get_nowait()
+                kind, app, kw = _queue.get_nowait()
                 try:
-                    _build(root, app, first_run)
+                    if kind == "howto":
+                        _build(root, app, kw.get("first_run", False))
+                    elif kind == "history":
+                        _build_history(root, app)
+                    elif kind == "scratchpad":
+                        _toggle_scratchpad(root, app)
                 except Exception:  # noqa: BLE001 — a broken window must not kill the thread
-                    log.exception("how-to window failed")
+                    log.exception("%s window failed", kind)
         except queue.Empty:
             pass
         root.after(150, _poll)
 
     root.after(150, _poll)
     root.mainloop()
+
+
+def _style_toplevel(win, title: str, w: int, h: int):
+    import tkinter as tk  # noqa: F401
+    win.title(title)
+    win.configure(bg=BG)
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 2)}")
+    try:
+        from .setup_ui import _asset
+        ic = _asset("icon.ico")
+        if ic:
+            win.iconbitmap(ic)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        win.attributes("-topmost", True)
+        win.lift()
+        win.after(900, lambda: win.attributes("-topmost", False))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _build_history(root, app):
+    """Search + browse everything Svara typed; copy any entry back out."""
+    import time as _time
+    import tkinter as tk
+
+    win = getattr(root, "_svara_history", None)
+    if win is not None and win.winfo_exists():
+        win.destroy()  # rebuild fresh — cheap, and rows may have changed
+    win = tk.Toplevel(root)
+    root._svara_history = win
+    _style_toplevel(win, "Svara — History", 640, 520)
+
+    top = tk.Frame(win, bg=BG)
+    top.pack(fill="x", padx=16, pady=(14, 6))
+    tk.Label(top, text="HISTORY", bg=BG, fg=SUB,
+             font=("Segoe UI", 9, "bold")).pack(side="left")
+    q_var = tk.StringVar()
+    q_entry = tk.Entry(top, textvariable=q_var, bg=CARD, fg=FG, relief="flat",
+                       insertbackground=ACCENT, font=("Segoe UI", 10))
+    q_entry.pack(side="right", fill="x", expand=True, padx=(12, 0),
+                 ipady=4, ipadx=6)
+
+    box = tk.Listbox(win, bg=CARD, fg=FG, relief="flat", bd=0,
+                     font=("Segoe UI", 10), selectbackground=CARD_ON,
+                     selectforeground=ACCENT, activestyle="none")
+    box.pack(fill="both", expand=True, padx=16, pady=(4, 6))
+    rows: list[str] = []  # full texts aligned with listbox indexes
+
+    def refresh(*_):
+        box.delete(0, "end")
+        rows.clear()
+        for ts, app_name, kind, text in app.history.recent(
+                200, q_var.get().strip() or None):
+            stamp = _time.strftime("%d %b %H:%M", _time.localtime(ts))
+            tag = f" · {kind}" if kind != "dictation" else ""
+            src = f" · {app_name}" if app_name else ""
+            preview = text if len(text) <= 90 else text[:87] + "…"
+            box.insert("end", f"{stamp}{src}{tag}   {preview}")
+            rows.append(text)
+        if not rows:
+            box.insert("end", "(nothing here yet — dictate something!)")
+
+    q_var.trace_add("write", refresh)
+
+    def copy_selected(*_):
+        sel = box.curselection()
+        if sel and sel[0] < len(rows):
+            from .injector import _clipboard_set
+            _clipboard_set(rows[sel[0]])
+            app._notify("Copied to clipboard.")
+
+    box.bind("<Double-Button-1>", copy_selected)
+
+    foot = tk.Frame(win, bg=BG)
+    foot.pack(fill="x", padx=16, pady=(0, 14))
+    tk.Label(foot, text="Double-click a row to copy it",
+             bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left")
+    tk.Button(foot, text="Clear history", bg=CARD, fg=FG, bd=0, padx=14,
+              pady=5, cursor="hand2", font=("Segoe UI", 9),
+              command=lambda: (app.history.clear(), refresh())
+              ).pack(side="right", padx=(8, 0))
+    tk.Button(foot, text="Copy selected", bg=ACCENT, fg=BTN_TEXT, bd=0,
+              padx=14, pady=5, cursor="hand2",
+              font=("Segoe UI Semibold", 9),
+              command=copy_selected).pack(side="right")
+    refresh()
+
+
+def _toggle_scratchpad(root, app):
+    """A tiny always-available notepad — dictate into it, keep snippets.
+    Toggles: the shortcut shows it when hidden, hides it when shown.
+    Content autosaves to scratchpad.txt next to the config."""
+    import tkinter as tk
+
+    from .paths import base_dir
+    path = base_dir() / "scratchpad.txt"
+
+    win = getattr(root, "_svara_scratch", None)
+    if win is not None and win.winfo_exists():
+        if win.state() == "withdrawn":
+            win.deiconify()
+            win.lift()
+        else:
+            win.withdraw()
+        return
+    win = tk.Toplevel(root)
+    root._svara_scratch = win
+    _style_toplevel(win, "Svara — Scratchpad", 460, 420)
+
+    text = tk.Text(win, bg=CARD, fg=FG, insertbackground=ACCENT,
+                   relief="flat", font=("Segoe UI", 11), wrap="word",
+                   padx=12, pady=10, undo=True)
+    text.pack(fill="both", expand=True, padx=14, pady=14)
+    try:
+        if path.is_file():
+            text.insert("1.0", path.read_text(encoding="utf-8"))
+    except OSError:
+        pass
+
+    save_job = [None]
+
+    def save(*_):
+        try:
+            path.write_text(text.get("1.0", "end-1c"), encoding="utf-8")
+        except OSError:
+            log.debug("scratchpad save failed", exc_info=True)
+
+    def schedule_save(*_):
+        if save_job[0]:
+            win.after_cancel(save_job[0])
+        save_job[0] = win.after(800, save)
+
+    text.bind("<KeyRelease>", schedule_save)
+    win.protocol("WM_DELETE_WINDOW", lambda: (save(), win.withdraw()))
+    text.focus_set()
 
 
 def _build(root, app, first_run=False):
@@ -254,6 +413,19 @@ def _build(root, app, first_run=False):
         [("live", "Live"), ("preview", "Preview"), ("off", "Off")],
         cfg["streaming"]["mode"], app.set_streaming_mode)
 
+    HOTKEYS = [("right alt", "Right Alt"), ("right ctrl", "Right Ctrl"),
+               ("f8", "F8"), ("caps lock", "Caps Lock"),
+               ("scroll lock", "Scroll Lock"), ("pause", "Pause"),
+               ("num 0", "Numpad 0"), ("ctrl+win", "Ctrl+Win"),
+               ("ctrl+shift+space", "Ctrl+Shift+Space")]
+    cur_hk = cfg["recording"].get("hotkey", "right alt")
+    if not any(v == cur_hk for v, _ in HOTKEYS):
+        HOTKEYS.insert(0, (cur_hk, cur_hk))  # custom key from config stays offered
+    _dropdown_row(settings, "Hotkey", HOTKEYS, cur_hk,
+                 lambda v: (app.set_hotkey(v),
+                            root.after(200, lambda: _build(root, app))),
+                 hint="switches instantly — no restart")
+
     if getattr(app, "is_multilingual", True):
         cur = app.current_language
         _dropdown_row(settings, "Language", LANGS, cur, app.set_language,
@@ -267,6 +439,32 @@ def _build(root, app, first_run=False):
                           "\"Large v3 Turbo\" above for 90+ languages)",
                  bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
                                                            padx=(10, 0))
+
+    # --- quick-add to the personal dictionary: names/jargon Svara mishears —
+    # the single highest-leverage accuracy fix a user can make. ---
+    row = tk.Frame(settings, bg=BG)
+    row.pack(fill="x", pady=3)
+    tk.Label(row, text="Dictionary", bg=BG, fg=SUB, width=9, anchor="w",
+             font=("Segoe UI", 9, "bold")).pack(side="left")
+    word_var = tk.StringVar()
+    word_entry = tk.Entry(row, textvariable=word_var, bg=CARD, fg=FG,
+                          relief="flat", insertbackground=ACCENT,
+                          font=("Segoe UI", 10), width=22)
+    word_entry.pack(side="left", padx=(10, 0), ipady=3, ipadx=6)
+
+    def _add_word(*_):
+        w = word_var.get().strip()
+        if w:
+            app.add_dictionary_word(w)
+            word_var.set("")
+
+    word_entry.bind("<Return>", _add_word)
+    tk.Button(row, text="Add word", bg=CARD, fg=ACCENT, bd=0, padx=10, pady=3,
+              cursor="hand2", font=("Segoe UI", 9), command=_add_word
+              ).pack(side="left", padx=(6, 0))
+    tk.Label(row, text="a name Svara mishears? add it",
+             bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
+                                                       padx=(10, 0))
 
     # --- start with Windows: THE reliability setting. Svara only feels
     # dependable if the hotkey works after every reboot without the user

@@ -41,6 +41,9 @@ DEFAULTS: dict = {
         "restore_clipboard": True,      # (paste) restore previous clipboard content after
     },
     "cleanup": {
+        "level": "light",               # none | light | medium | high (one dial:
+                                        # light=fillers, medium=+backtrack,
+                                        # high=+LLM rewrite when Ollama is up)
         "strip_fillers": True,          # regex removal of um/uh/erm...
         "expressive": {                 # voice-aware formatting
             "enabled": True,
@@ -67,6 +70,34 @@ DEFAULTS: dict = {
         "snippets": {},                 # {"spoken trigger": "expanded text"}
         "spoken_punctuation": False,    # "period"/"comma"/"new line" → . , \n
     },
+    "history": {
+        "enabled": True,                # local dictation log (history.db)
+        "retention_hours": 0,           # 0 = keep forever; e.g. 24 = a day
+    },
+    "context": {
+        "enabled": True,                # look at the focused app per dictation
+        "title_hotwords": True,         # window-title nouns → recognition boost
+        "chat_no_period": True,         # drop the trailing period in chat apps
+        "chat_apps": ["slack.exe", "discord.exe", "whatsapp.exe",
+                      "telegram.exe", "ms-teams.exe", "signal.exe"],
+        "styles": {},                   # {"slack.exe": "casual, friendly"} —
+                                        # tone hint for the LLM cleanup
+    },
+    "shortcuts": {
+        "paste_last": "<shift>+<alt>+z",    # re-paste the last dictation
+        "copy_last": "<shift>+<alt>+x",     # copy it instead
+        "polish": "<cmd>+<alt>+p",          # rewrite SELECTED text (needs Ollama)
+        "scratchpad": "<cmd>+<alt>+s",      # toggle the notes window
+        "command_key": None,                # e.g. "f9": hold + speak an instruction
+    },
+    "update": {
+        "check": True,                  # look for new releases in the background
+        "hours": 24,                    # how often
+    },
+    "transforms": {
+        "polish_prompt": None,          # custom Polish instruction (None = default)
+        "max_chars": 8000,              # selection size limit for transforms
+    },
     "streaming": {
         "mode": "live",                 # live (types words in real time as you speak)
                                         # | preview (live text in the pill) | off
@@ -77,6 +108,7 @@ DEFAULTS: dict = {
         "sample_rate": 16000,
         "block_size": 512,
         "input_device": None,           # None = system default mic (see --list-devices)
+        "gain": 1.0,                    # software mic boost (whisper mode uses 3.0)
     },
     "ui": {
         "sounds": True,                 # beep on record start/stop
@@ -106,6 +138,34 @@ def _merge(base: dict, over: dict) -> dict:
         else:
             out[k] = v
     return out
+
+
+def merged_dictionary(cfg: dict) -> dict:
+    """config.yaml's dictionary section overlaid with dictionary.yaml (the
+    machine-managed personal file): words union, replacements/snippets merge
+    (dictionary.yaml wins on conflicts)."""
+    from .paths import dictionary_path
+    base = copy.deepcopy(cfg.get("dictionary") or DEFAULTS["dictionary"])
+    p = dictionary_path()
+    if not p.is_file():
+        return base
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            over = yaml.safe_load(f) or {}
+        if not isinstance(over, dict):
+            raise ValueError("dictionary root must be a mapping")
+        base["words"] = list(dict.fromkeys(
+            list(base.get("words") or []) + list(over.get("words") or [])))
+        for key in ("replacements", "snippets"):
+            merged = dict(base.get(key) or {})
+            merged.update(over.get(key) or {})
+            base[key] = merged
+        if "spoken_punctuation" in over:
+            base["spoken_punctuation"] = bool(over["spoken_punctuation"])
+    except Exception as e:  # noqa: BLE001 — a broken dictionary must not kill startup
+        log.error("Failed to parse %s (%s) — using config.yaml's dictionary only.",
+                  p, e)
+    return base
 
 
 def load(path: str | Path | None) -> dict:

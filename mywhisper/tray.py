@@ -108,6 +108,15 @@ class Tray:
 
             return pystray.MenuItem(label, action, checked=is_checked, radio=True)
 
+        def level_item(level, label):
+            def action(icon, item):
+                self.app.set_cleanup_level(level)
+
+            def is_checked(item):
+                return self.app.cleanup.level == level
+
+            return pystray.MenuItem(label, action, checked=is_checked, radio=True)
+
         from .howto_ui import LANGS
         from .setup_ui import _CPU_OK, MODELS
 
@@ -128,6 +137,18 @@ class Tray:
                 "How to use / Test…",
                 lambda icon, item: self.app.show_howto(),
                 default=True,  # double-clicking the tray icon opens it too
+            ),
+            pystray.MenuItem(
+                "History…",
+                lambda icon, item: self.app.show_history(),
+            ),
+            pystray.MenuItem(
+                "Scratchpad…",
+                lambda icon, item: self.app.show_scratchpad(),
+            ),
+            pystray.MenuItem(
+                "Paste last dictation",
+                lambda icon, item: self.app.paste_last(),
             ),
             pystray.MenuItem(
                 "Model",
@@ -199,9 +220,18 @@ class Tray:
                 checked=lambda item: self.app.paused,
             ),
             pystray.MenuItem(
-                "Strip filler words",
-                lambda icon, item: self.app.toggle_fillers(),
-                checked=lambda item: self.app.cleanup.strip_fillers_enabled,
+                "Whisper mode",
+                lambda icon, item: self.app.toggle_whisper_mode(),
+                checked=lambda item: self.app.whisper_mode,
+            ),
+            pystray.MenuItem(
+                "Cleanup",
+                pystray.Menu(
+                    level_item("none", "None — verbatim"),
+                    level_item("light", "Light — remove um/uh"),
+                    level_item("medium", "Medium — + 'scratch that' fixes"),
+                    level_item("high", "High — + AI rewrite (needs Ollama)"),
+                ),
             ),
             pystray.MenuItem(
                 "LLM cleanup (Ollama)",
@@ -209,6 +239,17 @@ class Tray:
                 checked=lambda item: self.app.cleanup.llm.cfg["enabled"],
             ),
             pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                lambda item: (f"Restart to update "
+                              f"(v{self.app.updater.staged_version})"),
+                lambda icon, item: self.app.apply_update(),
+                visible=lambda item: self.app.updater.staged is not None,
+            ),
+            pystray.MenuItem(
+                "Check for updates…",
+                lambda icon, item: self.app.check_updates_now(),
+                visible=lambda item: getattr(sys, "frozen", False),
+            ),
             pystray.MenuItem("Quit", lambda icon, item: self.app.shutdown()),
         )
         hk = app.cfg["recording"].get("hotkey", "right alt")
