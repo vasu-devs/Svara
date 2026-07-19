@@ -151,6 +151,20 @@ class TestEnsureInstalled(InstallTestBase):
             self.assertFalse(install.ensure_installed())
         self.assertEqual(self.spawned, [])
 
+    def test_applied_updates_are_purged_newer_kept(self):
+        exe = install.installed_exe()
+        updates = exe.parent / "updates"
+        updates.mkdir(parents=True)
+        exe.write_bytes(b"installed")
+        (updates / "Svara-0.0.1.exe").write_bytes(b"old staged")
+        (updates / "Svara-99.0.0.exe").write_bytes(b"future staged")
+        with mock.patch.object(sys, "executable", str(exe)):
+            install.ensure_installed()
+        self.assertFalse((updates / "Svara-0.0.1.exe").exists(),
+                         "applied update must be cleaned up (107MB each)")
+        self.assertTrue((updates / "Svara-99.0.0.exe").exists(),
+                        "a not-yet-applied newer update must be kept")
+
     def test_old_download_does_not_replace_newer_install(self):
         exe = install.installed_exe()
         exe.parent.mkdir(parents=True, exist_ok=True)

@@ -156,6 +156,7 @@ def ensure_installed(splash=None) -> bool:
 
     if is_installed_copy():
         _write_manifest(__version__)
+        _purge_applied_updates(__version__)
         return False
 
     src = Path(sys.executable).resolve()
@@ -220,6 +221,25 @@ def ensure_installed(splash=None) -> bool:
     if _spawn(dst):
         return True
     return False  # spawn failed → keep running from here rather than dying
+
+
+def _purge_applied_updates(current_version: str) -> None:
+    """Staged auto-update downloads are ~107 MB each; once we're running a
+    version ≥ theirs they're dead weight. Newer ones (downloaded, not yet
+    applied) are kept."""
+    import re
+    updates = install_dir() / "updates"
+    if not updates.is_dir():
+        return
+    for f in updates.glob("*.exe"):
+        m = re.search(r"(\d+(?:\.\d+)+)", f.name)
+        if m and _version_tuple(m.group(1)) > _version_tuple(current_version):
+            continue  # a newer staged update — leave it for the tray to apply
+        try:
+            f.unlink()
+            log.info("removed applied update %s", f.name)
+        except OSError:
+            pass
 
 
 # -- login autostart (HKCU Run key — per-user, no admin needed) ---------------
