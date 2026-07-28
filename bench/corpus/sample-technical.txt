@@ -1,0 +1,1 @@
+Deploy the Kubernetes cluster using CTranslate2 and faster whisper on the GPU.

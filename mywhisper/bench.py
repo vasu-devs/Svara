@@ -128,9 +128,13 @@ class Result:
     audio_seconds: float = 0.0
     peak_rss_mb: float | None = None
     warmup_s: float | None = None
+    segments_decoded: int = 0
+    valid: bool = True
     notes: list[str] = field(default_factory=list)
 
     def meets_budget(self) -> bool:
+        if not self.valid:
+            return False
         return (self.ttfw_ms is not None and self.ttfw_ms <= TARGET_TTFW_MS
                 and self.partial_ms.get("p95", 1e9) <= TARGET_P95_MS)
 
@@ -200,9 +204,18 @@ def _peak_rss_mb() -> float | None:
 
         counters = _PROCESS_MEMORY_COUNTERS()
         counters.cb = ctypes.sizeof(_PROCESS_MEMORY_COUNTERS)
-        ctypes.windll.psapi.GetProcessMemoryInfo(
-            ctypes.windll.kernel32.GetCurrentProcess(),
-            ctypes.byref(counters), counters.cb)
+        # argtypes matter here: without them ctypes passes the process handle
+        # as a 32-bit int and the call fails, silently returning a 0 MB peak.
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = wintypes.HANDLE
+        get_info = k32.K32GetProcessMemoryInfo
+        get_info.argtypes = [wintypes.HANDLE,
+                             ctypes.POINTER(_PROCESS_MEMORY_COUNTERS),
+                             wintypes.DWORD]
+        get_info.restype = wintypes.BOOL
+        if not get_info(k32.GetCurrentProcess(), ctypes.byref(counters),
+                        counters.cb):
+            return None
         return round(counters.PeakWorkingSetSize / (1024 ** 2), 1)
     except Exception:  # noqa: BLE001
         return None
@@ -336,6 +349,7 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
     ttfw_samples: list[float] = []
     total_audio = 0.0
     total_compute = 0.0
+    decoded = 0                 # segments the decoder actually produced
     wer_scores: list[float] = []
     cer_scores: list[float] = []
     term_hits = term_total = 0
@@ -350,8 +364,9 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
                 (cfg.get("streaming") or {}).get("min_audio_s", 0.35)) * 16000)]
             if len(first_window) > 1600:
                 t0 = time.perf_counter()
-                transcriber.transcribe_partial(first_window)
+                out = transcriber.transcribe_partial(first_window)
                 ttfw_samples.append((time.perf_counter() - t0) * 1000)
+                decoded += len(out)
 
             # Streaming passes over a growing window, as the streamer does.
             step = int(16000 * float(
@@ -359,8 +374,9 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
             pos = int(0.35 * 16000)
             while pos < len(audio):
                 t0 = time.perf_counter()
-                transcriber.transcribe_partial(audio[:pos])
+                out = transcriber.transcribe_partial(audio[:pos])
                 partial_samples.append((time.perf_counter() - t0) * 1000)
+                decoded += len(out)
                 pos += max(step, 1600)
 
             t0 = time.perf_counter()
@@ -369,6 +385,7 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
             final_samples.append(elapsed * 1000)
             total_compute += elapsed
             total_audio += duration
+            decoded += len(segs)
 
             if run == 0 and have_corpus and reference:
                 hypothesis = " ".join(t for t, _, _ in segs)
@@ -382,7 +399,20 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
         print(f"  ✓ {name:24} {duration:5.1f}s audio")
 
     result.clips = len(clips)
+    result.segments_decoded = decoded
     result.audio_seconds = round(total_audio, 1)
+    # Silero VAD sits in front of the decoder and rejects anything that isn't
+    # speech — including the synthetic fallback audio. When that happens every
+    # pass returns instantly and the harness would report a gorgeous 5 ms TTFW
+    # for a decoder that never ran. That is precisely the flattering-zero
+    # failure this file exists to prevent, so the run is marked invalid.
+    if decoded == 0:
+        result.valid = False
+        result.notes.append(
+            "NO AUDIO REACHED THE DECODER — the voice-activity filter rejected "
+            "every clip, so these timings measure VAD rejection, not "
+            "transcription. They are NOT a latency result. Record real speech "
+            "into bench/corpus/ (see its README).")
     result.ttfw_ms = round(statistics.median(ttfw_samples), 1) if ttfw_samples else None
     result.partial_ms = _percentiles(partial_samples)
     result.final_ms = _percentiles(final_samples)
@@ -401,23 +431,31 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
 
 
 def _print_report(r: Result):
+    # Without a decode, no timing here means anything — so don't decorate any
+    # of them with a budget verdict the reader would take at face value.
+    def verdict(ok: bool) -> str:
+        if not r.valid:
+            return "— not meaningful"
+        return "✓" if ok else "✗"
+
     print("\n" + "─" * 62)
     print(f"  {'model':16} {r.model} on {r.device} ({r.compute_type})")
     if r.ttfw_ms is not None:
-        flag = "✓" if r.ttfw_ms <= TARGET_TTFW_MS else "✗"
-        print(f"  {'TTFW':16} {r.ttfw_ms:.0f} ms   {flag} budget "
-              f"{TARGET_TTFW_MS:.0f} ms")
+        print(f"  {'TTFW':16} {r.ttfw_ms:.0f} ms   "
+              f"{verdict(r.ttfw_ms <= TARGET_TTFW_MS)}"
+              f"{'' if not r.valid else f' budget {TARGET_TTFW_MS:.0f} ms'}")
     if r.partial_ms:
         p = r.partial_ms
-        flag = "✓" if p["p95"] <= TARGET_P95_MS else "✗"
         print(f"  {'partial pass':16} p50 {p['p50']:.0f} · p95 {p['p95']:.0f} · "
-              f"max {p['max']:.0f} ms   {flag} budget {TARGET_P95_MS:.0f} ms p95")
+              f"max {p['max']:.0f} ms   {verdict(p['p95'] <= TARGET_P95_MS)}"
+              f"{'' if not r.valid else f' budget {TARGET_P95_MS:.0f} ms p95'}")
     if r.final_ms:
         p = r.final_ms
         print(f"  {'final pass':16} p50 {p['p50']:.0f} · p95 {p['p95']:.0f} ms")
     if r.rtf is not None:
-        flag = "✓" if r.rtf < 1.0 else "✗ cannot keep up with speech"
-        print(f"  {'RTF':16} {r.rtf:.3f}   {flag}")
+        print(f"  {'RTF':16} {r.rtf:.3f}   "
+              f"{verdict(r.rtf < 1.0) if r.valid else '— not meaningful'}")
+    print(f"  {'decoded':16} {r.segments_decoded} segments")
     if r.wer is not None:
         print(f"  {'WER / CER':16} {r.wer * 100:.2f}% / {r.cer * 100:.2f}%  "
               f"({r.clips} clips, {r.audio_seconds:.0f}s)")
@@ -472,7 +510,11 @@ def main(cfg: dict, repeats: int = 3) -> int:
     except Exception:  # noqa: BLE001
         log.exception("benchmark failed")
         return 1
-    # Non-zero when the latency budget is missed, so this can gate a release.
+    # Non-zero when the run proved nothing or missed the budget, so this can
+    # gate a release without anyone having to read the output carefully.
+    if not result.valid:
+        print("  No usable measurement — see the note above.\n")
+        return 3
     if result.ttfw_ms is not None and not result.meets_budget():
         print("  Latency budget missed — see PLAN.md §2 for the targets.\n")
         return 2

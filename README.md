@@ -38,6 +38,7 @@ A free, local, open-source alternative to cloud dictation tools like Wispr Flow.
 - [How it works](#how-it-works)
 - [Testing](#testing)
 - [Privacy](#privacy)
+- [Benchmarks](BENCH.md)
 - [Building a shippable app](#building-a-shippable-app)
 - [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting)

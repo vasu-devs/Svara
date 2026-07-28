@@ -1,0 +1,46 @@
+{
+  "model": "base.en",
+  "device": "cpu",
+  "compute_type": "int8",
+  "machine": {
+    "os": "Windows 10",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "python": "3.11.4",
+    "cores": 20,
+    "ram_gb": 23.7,
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU"
+  },
+  "ttfw_ms": 1401.6,
+  "partial_ms": {
+    "n": 208,
+    "p50": 1469.0,
+    "p95": 2094.0,
+    "min": 984.5,
+    "max": 4841.2,
+    "mean": 1530.5,
+    "stdev": 418.0
+  },
+  "final_ms": {
+    "n": 6,
+    "p50": 1431.6,
+    "p95": 2260.5,
+    "min": 1426.8,
+    "max": 2260.5,
+    "mean": 1630.1,
+    "stdev": 334.8
+  },
+  "rtf": 0.25,
+  "wer": 0.0833,
+  "cer": 0.0087,
+  "term_recall": null,
+  "clips": 3,
+  "audio_seconds": 39.1,
+  "peak_rss_mb": 407.5,
+  "warmup_s": 2.82,
+  "segments_decoded": 290,
+  "valid": true,
+  "notes": [],
+  "svara_version": "0.5.0",
+  "git": "ca7af97",
+  "timestamp": "2026-07-29T02:54:41"
+}
