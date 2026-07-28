@@ -3,13 +3,37 @@
 **Status:** Phases 0–2 **implemented in v0.5.0**; Phase 3 (SOTA tier) open · **Written:** 29 Jul 2026 · **Baseline:** v0.4.1 (`7cde18f`)
 **Companion docs:** [`ROADMAP.md`](ROADMAP.md) (what shipped) · [`ARCHITECTURE.md`](ARCHITECTURE.md) (how it's built) · [`PRIVACY.md`](PRIVACY.md) (what's read and written) · [`SHIP.md`](SHIP.md) (release process)
 
-> **Implementation note (v0.5.0).** Everything in Phases 0, 1 and 2 below is
-> built and tested — 273 tests, up from 74. The gap table in §1.3 is closed;
-> §3's findings are fixed. The one deliberate deviation is **G14 clamshell**:
-> reading the physical lid switch needs `RegisterPowerSettingNotification` and a
-> message pump, and the case people describe as "clamshell" turned out to be
-> "docked with an external mic", so it ships as `audio.device_policy:
-> external_first` instead. §7 (Phase 3) is untouched and remains the roadmap.
+> **Implementation note (v0.5.0).** Phases 0, 1, 2 are built and tested — 331
+> tests, up from 74. The gap table in §1.3 is closed and §3's findings are
+> fixed. Of Phase 3: the `asr/` seam (§7 3.1), commit policies and the window
+> cap (3.2), semantic endpointing (3.3) and the CI gate (3.5) are in;
+> **3.1's engine evaluation and 3.4's personalization are not.**
+>
+> Two deliberate deviations. **G14 clamshell**: reading the physical lid switch
+> needs `RegisterPowerSettingNotification` and a message pump, and the case
+> people call "clamshell" is almost always "docked with an external mic" — so it
+> ships as `audio.device_policy: external_first`. **§7's premise has changed**:
+> see below.
+>
+> ### What the benchmark did to this plan
+>
+> §2 assumed latency was a matter of tuning. It is not. Measured on the shipped
+> default, a **7.7× larger decode window costs 8% more time** — Whisper pads its
+> mel spectrogram to a fixed 30 s, so every pass pays for 30 s of encoder no
+> matter how little you said.
+>
+> That invalidates two things this document assumed:
+>
+> - **Trimming and commit-policy tuning cannot reach the budget.** They are
+>   worth having (trimming bounds memory; the policy controls flicker) but
+>   §3.5's framing of them as latency wins was wrong.
+> - **"Use a smaller model" is not a path.** `tiny.en` gets within 2 ms of the
+>   p95 target and costs +43% WER. Dictation you have to correct is not faster.
+>
+> So §7 3.1 is no longer "evaluate candidates and see" — it is the only
+> remaining lever, and the criterion is specific: **an engine that does not pad
+> to a fixed window.** Moonshine is first to try because that is its design
+> premise. Numbers and reasoning in [`BENCH.md`](BENCH.md).
 
 ---
 

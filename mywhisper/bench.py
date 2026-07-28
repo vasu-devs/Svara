@@ -40,6 +40,8 @@ from pathlib import Path
 
 import numpy as np
 
+from .streaming import StreamState, make_policy
+
 log = logging.getLogger(__name__)
 
 TARGET_TTFW_MS = 300.0        # v1.0 budget from PLAN.md §2
@@ -129,6 +131,7 @@ class Result:
     peak_rss_mb: float | None = None
     warmup_s: float | None = None
     segments_decoded: int = 0
+    window_s: dict = field(default_factory=dict)   # audio re-decoded per pass
     valid: bool = True
     notes: list[str] = field(default_factory=list)
 
@@ -344,9 +347,11 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
               "(drop .wav/.txt pairs into bench/corpus/)\n")
 
     dictionary_terms = list((cfg.get("dictionary") or {}).get("words") or [])
+    scfg = cfg.get("streaming") or {}
     partial_samples: list[float] = []
     final_samples: list[float] = []
     ttfw_samples: list[float] = []
+    window_seconds: list[float] = []   # how much audio each partial pass saw
     total_audio = 0.0
     total_compute = 0.0
     decoded = 0                 # segments the decoder actually produced
@@ -360,24 +365,41 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
             # TTFW proxy: the first streaming window the app would decode
             # (streaming.min_audio_s of audio), decoded exactly as the streamer
             # decodes it. This is the number the user feels.
-            first_window = audio[:int(float(
-                (cfg.get("streaming") or {}).get("min_audio_s", 0.35)) * 16000)]
+            first_window = audio[:int(float(scfg.get("min_audio_s", 0.35)) * 16000)]
             if len(first_window) > 1600:
                 t0 = time.perf_counter()
                 out = transcriber.transcribe_partial(first_window)
                 ttfw_samples.append((time.perf_counter() - t0) * 1000)
                 decoded += len(out)
 
-            # Streaming passes over a growing window, as the streamer does.
-            step = int(16000 * float(
-                (cfg.get("streaming") or {}).get("interval_ms", 180)) / 1000)
-            pos = int(0.35 * 16000)
+            # Streaming passes, driven through the REAL commit state machine so
+            # the window is trimmed exactly as it is in the app. The first cut
+            # of this harness re-decoded `audio[:pos]` every pass with no
+            # trimming, which made partial latency look far worse than users
+            # actually experience — a measurement disagreeing with the thing it
+            # measures. Sharing `streaming.py` makes that impossible.
+            state = StreamState(
+                policy=make_policy(scfg.get("commit_policy", "local_agreement"),
+                                   hold_back=int(scfg.get("hold_back", 1)),
+                                   confident_after=int(
+                                       scfg.get("confident_after", 12))),
+                sr=16000,
+                max_window_s=float(scfg.get("max_window_s", 0) or 0))
+            advance = max(int(16000 * float(scfg.get("interval_ms", 180)) / 1000),
+                          1600)
+            pos = int(float(scfg.get("min_audio_s", 0.35)) * 16000)
             while pos < len(audio):
+                window = audio[state.t0:pos]
+                if len(window) < 1600:
+                    pos += advance
+                    continue
                 t0 = time.perf_counter()
-                out = transcriber.transcribe_partial(audio[:pos])
+                out = transcriber.transcribe_partial(window)
                 partial_samples.append((time.perf_counter() - t0) * 1000)
+                window_seconds.append(len(window) / 16000)
                 decoded += len(out)
-                pos += max(step, 1600)
+                state.step(out, len(window))
+                pos += advance
 
             t0 = time.perf_counter()
             segs = transcriber.transcribe(audio)
@@ -416,6 +438,7 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
     result.ttfw_ms = round(statistics.median(ttfw_samples), 1) if ttfw_samples else None
     result.partial_ms = _percentiles(partial_samples)
     result.final_ms = _percentiles(final_samples)
+    result.window_s = _percentiles(window_seconds)
     result.rtf = round(total_compute / total_audio, 3) if total_audio else None
     result.peak_rss_mb = _peak_rss_mb()
     if wer_scores:
@@ -449,6 +472,12 @@ def _print_report(r: Result):
         print(f"  {'partial pass':16} p50 {p['p50']:.0f} · p95 {p['p95']:.0f} · "
               f"max {p['max']:.0f} ms   {verdict(p['p95'] <= TARGET_P95_MS)}"
               f"{'' if not r.valid else f' budget {TARGET_P95_MS:.0f} ms p95'}")
+    if r.window_s:
+        # Partial latency is mostly a function of this: trimming is what keeps
+        # pass time flat however long the utterance runs.
+        p = r.window_s
+        print(f"  {'window decoded':16} p50 {p['p50']:.1f} · p95 {p['p95']:.1f} · "
+              f"max {p['max']:.1f} s of audio per pass")
     if r.final_ms:
         p = r.final_ms
         print(f"  {'final pass':16} p50 {p['p50']:.0f} · p95 {p['p95']:.0f} ms")

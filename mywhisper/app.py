@@ -17,6 +17,7 @@ import numpy as np
 
 from .audio import Recorder
 from .context import ContextProvider
+from .endpoint import should_finish
 from .history import History
 from .hotkey import create_listener
 from .injection import TextInjector
@@ -25,6 +26,7 @@ from .pipeline import CleanupPipeline, UtteranceContext
 from .quickkeys import QuickKeys
 from .redact import E_STT_DECODE, E_STT_STREAM, redact, shape
 from .scratchpad import Scratchpad
+from .streaming import StreamState, align_remainder, make_policy
 from .transcriber import Transcriber
 from .transforms import CommandMode, Transformer
 from .tray import Tray
@@ -873,6 +875,13 @@ class MyWhisperApp:
 
     # -- background threads -----------------------------------------------------
 
+    def _committed_so_far(self) -> str:
+        """What the streamer has typed this utterance — the text semantic
+        endpointing judges. Empty when streaming is off, in which case
+        `should_finish` degrades to the plain silence timer."""
+        ctx = self._stream_ctx or {}
+        return " ".join(ctx.get("all_typed") or [])
+
     def _monitor(self):
         """Auto-stop on silence, max-duration cap, and mic health (always-on)."""
         rec_cfg = self.cfg["recording"]
@@ -908,9 +917,14 @@ class MyWhisperApp:
                 and auto["enabled"]
                 and not self.hotkey.locked
                 and self.recorder.speech_ms() >= auto["min_speech_ms"]
-                and self.recorder.silence_ms() >= auto["silence_ms"]
+                and should_finish(
+                    self._committed_so_far(),
+                    self.recorder.silence_ms(),
+                    auto["silence_ms"],
+                    max_silence_ms=float(auto.get("max_silence_ms", 0) or 0),
+                    semantic=bool(auto.get("semantic", False)))
             ):
-                log.info("silence detected — stopping")
+                log.info("end of utterance — stopping")
                 self.stop_recording()
 
     def _streamer(self, ctx: dict):
@@ -932,11 +946,20 @@ class MyWhisperApp:
         # start_recording downgrades live→preview for terminals and elevated
         # windows.
         live = ctx.get("mode", scfg["mode"]) == "live"
-        # Shared with the worker: the final pass MUST see the same window and
-        # committed words, so its hypothesis aligns 1:1 with what was typed.
+        # The commit/trim policy lives in streaming.py as a pure state machine,
+        # so the benchmark can replay exactly what the app does instead of
+        # approximating it. `t0` and `committed` are mirrored into ctx because
+        # the finalising worker decodes the SAME trimmed window — that is what
+        # keeps the stream/tail boundary from duplicating or dropping words.
+        state = StreamState(
+            policy=make_policy(scfg.get("commit_policy", "local_agreement"),
+                               hold_back=int(scfg.get("hold_back", 1)),
+                               confident_after=int(scfg.get("confident_after", 12))),
+            sr=sr,
+            max_window_s=float(scfg.get("max_window_s", 0) or 0))
+        context_words = int(scfg.get("context_prompt_words", 0) or 0)
         ctx.setdefault("t0", 0)          # samples trimmed (their words are typed)
         ctx.setdefault("committed", [])  # words typed since t0
-        last_words: list[str] = []
         while (self.recorder.recording and ctx is self._stream_ctx
                and not self._shutdown.is_set()):
             t_start = time.perf_counter()
@@ -947,61 +970,44 @@ class MyWhisperApp:
                 time.sleep(0.1)
                 continue
             audio = self.recorder.snapshot()
-            if audio is not None and len(audio) - ctx["t0"] >= min_samples:
+            if audio is not None and len(audio) - state.t0 >= min_samples:
                 try:
-                    window = audio[ctx["t0"]:] if live else audio[-20 * sr:]
-                    segs = self.transcriber.transcribe_partial(window)
+                    window = audio[state.t0:] if live else audio[-20 * sr:]
+                    # Optional rolling context: hand the decoder the words we
+                    # already typed, so a partial window is not decoded as if
+                    # the speaker had just started talking. Off by default —
+                    # it can also induce repetition, so it needs a --bench
+                    # number before it earns being on.
+                    prompt = None
+                    if context_words and state.committed:
+                        prompt = " ".join(state.committed[-context_words:])
+                    segs = self.transcriber.transcribe_partial(window,
+                                                               prompt=prompt)
                     if not (self.recorder.recording and ctx is self._stream_ctx):
                         break
-                    words = " ".join(t for t, _, _ in segs).split()
                     if not live:
-                        self.overlay.set_preview(" ".join(words))
-                    elif words:
-                        committed = ctx["committed"]
-                        agree = 0
-                        for a, b in zip(words, last_words):
-                            if a != b:
-                                break
-                            agree += 1
-                        if words == last_words:
-                            # hypothesis fully settled (you paused / stopped
-                            # talking) → release everything, incl. the last word
-                            stable = words
-                        else:
-                            stable = words[:max(agree - 1, 0)]  # hold back 1 word
-                        new = stable[len(committed):]
+                        self.overlay.set_preview(
+                            " ".join(t for t, _, _ in segs))
+                    else:
                         # While the hotkey (Alt!) is physically held, synthetic
-                        # keystrokes would arrive as Alt+char and get eaten by
-                        # the app — buffer instead; the release-finalization
-                        # types everything the moment the key comes up.
-                        if new and not self.hotkey.held:
-                            # loudness → CAPS on the way out; committed stays raw
-                            # so hypothesis alignment is never disturbed
+                        # keystrokes would arrive as Alt+char and be eaten by
+                        # the app — record the hypothesis but commit nothing;
+                        # the release-finalization types it all at once.
+                        step = state.step(segs, len(window),
+                                          can_type=not self.hotkey.held)
+                        if step.has_new:
+                            # loudness → CAPS on the way out; `committed` stays
+                            # raw so hypothesis alignment is never disturbed
                             flags = self._word_caps_flags(segs, window)
-                            styled = self._apply_caps(
-                                words, flags)[len(committed):len(stable)]
+                            styled = self._apply_caps(step.words, flags)[
+                                step.commit_from:step.commit_to]
                             self.injector.inject_stream(
                                 " ".join(styled) + " ", self._ctx)
-                            committed.extend(new)
                             ctx.setdefault("all_typed", []).extend(styled)
-                            ctx["typed_total"] += len(new)
-                            self.session_words += len(new)
-                        last_words = words
-                        # Trim whole segments whose words are all typed —
-                        # never the last (still-active) segment.
-                        win_dur = len(window) / sr
-                        cum, trim_sec = 0, 0.0
-                        for text, _start, end in segs[:-1]:
-                            wc = len(text.split())
-                            if cum + wc <= len(committed) and end < win_dur - 0.5:
-                                cum += wc
-                                trim_sec = end
-                            else:
-                                break
-                        if cum:
-                            ctx["t0"] += int(trim_sec * sr)
-                            ctx["committed"] = committed[cum:]
-                            last_words = last_words[cum:] if cum <= len(last_words) else []
+                            ctx["typed_total"] += len(styled)
+                            self.session_words += len(styled)
+                        ctx["t0"] = state.t0
+                        ctx["committed"] = state.committed
                 except Exception:  # noqa: BLE001
                     # The first failure is loud: a streaming loop that fails
                     # every pass types nothing at all, and at DEBUG that looks
@@ -1063,7 +1069,12 @@ class MyWhisperApp:
                     words = " ".join(t for t, _, _ in segs).split()
                     committed = (ctx or {}).get("committed", [])
                     flags = self._word_caps_flags(segs, window, update=True)
-                    remainder = self._apply_caps(words, flags)[len(committed):]
+                    styled = self._apply_caps(words, flags)
+                    # Align by CONTENT, not by count. The final pass uses a
+                    # different beam than the streamer and occasionally
+                    # tokenises the boundary differently; slicing at
+                    # len(committed) then repeats or drops a word.
+                    remainder = align_remainder(committed, styled)
                     # Only the tail goes through the pipeline: the prefix is
                     # already on screen, and re-running locale/personal rules
                     # over it would produce a second, differently-formatted

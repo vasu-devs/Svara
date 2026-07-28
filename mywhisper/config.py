@@ -23,6 +23,13 @@ DEFAULTS: dict = {
         "partial_beam_size": 2,         # live streaming beam: 2 balances speed + accuracy
         "initial_prompt": None,         # optional vocabulary hint for the decoder
         "download_root": None,          # None = default HuggingFace cache
+        "batched": "auto",              # auto | off — BatchedInferencePipeline for
+                                        #   the FINAL pass (faster-whisper >=1.1).
+                                        #   Falls back silently if unsupported.
+        "batch_size": 8,
+    },
+    "asr": {
+        "backend": "faster-whisper",    # the only one today; see mywhisper/asr/
     },
     "recording": {
         "mode": "hold_to_record",       # hold_to_record | press_to_toggle
@@ -38,6 +45,12 @@ DEFAULTS: dict = {
             "enabled": False,           # off: you stop it yourself (hotkey or click the pill)
             "silence_ms": 900,
             "min_speech_ms": 300,
+            # Semantic endpointing: at the silence threshold, look at what was
+            # actually said. "…and" is someone thinking; "…the team." is
+            # someone finished. Keeps listening through mid-clause pauses.
+            "semantic": False,
+            "max_silence_ms": 2500,     # hard ceiling — an unfinished sentence
+                                        #   can never hold the recording open
         },
     },
     "logging": {
@@ -157,6 +170,16 @@ DEFAULTS: dict = {
                                         # | preview (live text in the pill) | off
         "interval_ms": 180,             # how often to re-transcribe while recording
         "min_audio_s": 0.35,            # don't start until this much audio exists
+        "commit_policy": "local_agreement",  # local_agreement | adaptive
+        "hold_back": 1,                 # words held back after two passes agree
+        "confident_after": 12,          # (adaptive) agreement run that earns hold_back=0
+        "max_window_s": 30,             # cap the re-decoded window; past this, trimming
+                                        #   gets more aggressive so pass time stays flat
+                                        #   through speech with no pauses (0 = no cap)
+        "context_prompt_words": 0,      # feed the last N typed words back to the
+                                        #   decoder as context (0 = off; measure with
+                                        #   --bench before turning it on — it can also
+                                        #   induce repetition)
     },
     "audio": {
         "sample_rate": 16000,

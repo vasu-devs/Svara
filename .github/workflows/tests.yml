@@ -19,7 +19,20 @@ jobs:
           python-version: "3.11"
       # Only what the unit-tested modules import — the heavy STT stack
       # (faster-whisper/CUDA/sounddevice) is deliberately not exercised here.
+      # numpy is needed because bench.py and the live-path test import it at
+      # module level; test_livepath itself skips without faster-whisper.
       - name: Install test dependencies
-        run: pip install pyyaml pynput
+        run: pip install pyyaml pynput numpy
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
+
+      # Called out separately so a failure reads as what it actually is —
+      # dictated text reaching the log file — instead of "a test broke".
+      - name: Privacy guarantee — no transcript reaches the log
+        run: python -m unittest tests.test_redact -v
+
+      # config.yaml is the documentation users actually read, so a key
+      # documented there but absent from DEFAULTS is a promise the code does
+      # not keep. tests/test_config_integrity.py checks both directions.
+      - name: Config integrity
+        run: python -m unittest tests.test_config_integrity -v

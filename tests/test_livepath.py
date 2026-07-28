@@ -213,6 +213,19 @@ class TestLiveStreamingPath(unittest.TestCase):
                              f"{phrase!r} typed {norm.count(phrase)}x — "
                              "stream/tail boundary duplicated or dropped words")
 
+        # …and the general form of it. Three hand-picked phrases let a real
+        # duplicate ("push the code to to get hub") through, because "to" was
+        # not on the list. SPOKEN contains no repeated adjacent word, so any
+        # adjacent repeat in the output is a boundary defect, whatever the word.
+        spoken = re.sub(r"[^a-z0-9 ]", "", SPOKEN.lower()).split()
+        assert not any(a == b for a, b in zip(spoken, spoken[1:])), \
+            "fixture text must not itself repeat a word"
+        typed_words = norm.split()
+        repeats = [a for a, b in zip(typed_words, typed_words[1:]) if a == b]
+        self.assertFalse(repeats,
+                         f"adjacent word(s) {repeats} typed twice — the "
+                         f"stream/tail boundary duplicated them. Got: {norm!r}")
+
         rows = app.history.recent(5)
         self.assertTrue(rows, "live dictation was not recorded to history")
         hist_norm = re.sub(r"[^a-z0-9 ]", "", rows[0][3].lower())

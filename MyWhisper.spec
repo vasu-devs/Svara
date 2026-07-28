@@ -44,9 +44,11 @@ hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
                   # naming them keeps a lazily-imported stage from being pruned.
                   "mywhisper.pipeline", "mywhisper.injection",
                   "mywhisper.context", "mywhisper.transforms",
+                  "mywhisper.asr", "mywhisper.asr.faster_whisper",
                   "mywhisper.bench", "mywhisper.scratchpad",
                   "mywhisper.dictionary_io", "mywhisper.autolearn",
-                  "mywhisper.audio_policy", "mywhisper.redact"]
+                  "mywhisper.audio_policy", "mywhisper.redact",
+                  "mywhisper.streaming", "mywhisper.endpoint"]
 
 a = Analysis(
     ["app_entry.py"],

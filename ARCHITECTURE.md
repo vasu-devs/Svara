@@ -38,7 +38,9 @@ dictating into.
 | `app.py` | composition root + recording lifecycle. Builds the collaborators, wires the callbacks, owns the worker and streamer threads. |
 | `audio.py` · `audio_policy.py` | mic capture, pre-roll ring buffer, crash spill. Policy decides *which* mic (`preferred` / `system_default` / `external_first`). |
 | `hotkey.py` · `quickkeys.py` | the dictation key (poll-only state machine) and the chord shortcuts (pynput). |
-| `transcriber.py` | faster-whisper wrapper: load, warm up, `transcribe` / `transcribe_partial`. |
+| `asr/` | the recognition seam. `base.py` protocol + `Segment` · `faster_whisper.py` the default engine (batched final pass, warmup, CPU fallback). `transcriber.py` is the façade the app still calls. |
+| `streaming.py` | the live-commit state machine: LocalAgreement policies, window trimming, and `align_remainder` for the stream/tail boundary. Pure — no audio, threads or Win32. |
+| `endpoint.py` | semantic endpointing: is that pause a thought or an ending? |
 | `context/` | `win.py` foreground exe+title · `elevation.py` integrity levels · `caret.py` opt-in UIA caret text · `__init__.py` composes `UtteranceContext`. |
 | `pipeline/` | the cleanup stage chain. One stage per module. |
 | `injection/` | strategy per target app. `injector.py` holds the Win32 primitives. |
@@ -167,8 +169,32 @@ through the real streaming path; everything else is pure and fast.
 | `test_dictionary_io.py` | CSV import/export, auto-learn queue, correction detection |
 | `test_redact.py` | **the privacy guarantee** — no transcript reaches the log |
 | `test_stores.py` | scratchpad + versions + migration, device policy, WER maths |
+| `test_streaming.py` | commit policies, trimming, and the stream/tail boundary |
+| `test_endpoint.py` | thinking-pause vs finished-sentence |
+| `test_config_integrity.py` | config.yaml ↔ DEFAULTS agree; privacy gates default off |
 | `test_cleanup.py` · `test_features.py` · `test_llm_backend.py` · `test_install.py` | pre-0.5 behaviour, unchanged |
 | `test_livepath.py` | end-to-end: audio in, keystrokes out, history matches |
+
+### Why `streaming.py` is a separate module
+
+Deciding when a word is safe to type is the hardest logic here, and it used to
+live inline in the streamer loop — untestable without a microphone and a model,
+and impossible for the benchmark to model without reimplementing it. Which it
+did, subtly wrong: the first harness never trimmed, so it reported ~1127 ms p95
+where the app achieves ~913 ms.
+
+Both problems have one fix. The policy is a pure function of (hypothesis,
+previous hypothesis, committed words); `app.py` drives it with real audio,
+`bench.py` drives it with recorded segments. A measurement can no longer
+disagree with the thing it measures.
+
+`align_remainder` is the other half. The finalising worker re-decodes the same
+trimmed window, so its hypothesis *should* start with the words already on
+screen — but it runs a different beam and occasionally tokenises the boundary
+differently, at which point slicing by count lands mid-repeat and types
+"push the code to to get hub". Matching by content instead of position fixes it,
+and `test_livepath.py` now fails on *any* adjacent repeated word rather than the
+three phrases it used to check.
 
 ### Caching strategy
 

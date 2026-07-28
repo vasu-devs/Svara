@@ -22,6 +22,10 @@ model:
   partial_beam_size: 2        # live-streaming beam: 2 balances speed and accuracy (1=fastest, 5=most accurate)
   initial_prompt: null        # vocabulary hint, e.g. "MyWhisper, faster-whisper, CTranslate2"
   download_root: null         # model cache dir (null = HuggingFace default)
+  batched: auto               # auto | off — BatchedInferencePipeline for the FINAL pass
+                              #   (faster-whisper >=1.1). Silently falls back if the
+                              #   installed version rejects our arguments.
+  batch_size: 8
 
 recording:
   mode: hold_to_record        # hold_to_record:  hold key = talk · tap = cancel · DOUBLE-TAP = hands-free
@@ -44,6 +48,12 @@ recording:
     enabled: false            # off by default — YOU decide when it stops; set true if you
     silence_ms: 900           #   want it to auto-finish ~0.9s after you stop talking
     min_speech_ms: 300
+    semantic: false           # look at WHAT was said, not just how long you paused.
+                              #   "…send it to the team and" is you thinking; "…the team."
+                              #   is you finished. Keeps listening through mid-clause
+                              #   pauses instead of cutting you off.
+    max_silence_ms: 2500      # hard ceiling — an unfinished sentence can never hold the
+                              #   recording open indefinitely
 
 logging:
   debug_transcripts: false    # 🔒 OFF. On, every word you dictate is written to
@@ -209,7 +219,27 @@ streaming:
                               # preview = words only shown inside the pill; typed after you stop
                               # off     = classic batch (transcribe only after you stop)
   interval_ms: 180            # how often the rolling buffer is re-transcribed (lower = snappier)
+                              #   NOTE: on CPU a pass costs ~800ms, so the loop runs
+                              #   back-to-back and this is a floor, not a schedule.
+                              #   See BENCH.md.
   min_audio_s: 0.35           # wait for this much audio before the first word appears
+  commit_policy: local_agreement   # local_agreement = a word is typed once two passes
+                                   #   agree on it (stable, the default)
+                                   # adaptive = stops holding a word back once the
+                                   #   hypothesis has proved settled (snappier, newer)
+  hold_back: 1                # words kept back after agreement — the last agreed word is
+                              #   the one still being spoken. 0 = type it immediately.
+  confident_after: 12         # (adaptive) agreement run length that earns hold_back 0
+  max_window_s: 30            # cap on the re-decoded window; past it, trimming gets more
+                              #   aggressive so speech with no pauses can't grow it
+                              #   forever (0 = no cap)
+  context_prompt_words: 0     # feed the last N typed words back to the decoder as
+                              #   context. 0 = off — measure with --bench first; it can
+                              #   improve continuation OR induce repetition.
+
+asr:
+  backend: faster-whisper     # the only engine today. The seam exists so another can be
+                              #   benchmarked in (mywhisper/asr/) — see PLAN.md §7.
 
 audio:
   sample_rate: 16000
