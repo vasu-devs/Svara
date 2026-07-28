@@ -29,10 +29,15 @@ A free, local, open-source alternative to cloud dictation tools like Wispr Flow.
   - [Models](#models)
   - [Languages and translation](#languages-and-translation)
   - [Expressive formatting: shout-to-caps, fillers, LLM polish](#expressive-formatting)
+  - [Where the text lands](#where-the-text-lands)
+  - [Locale, spelling and Hinglish](#locale-spelling-and-hinglish)
+  - [Transforms and slots](#transforms-and-slots)
   - [Hotkey and recording modes](#hotkey-and-recording-modes)
   - [Streaming](#streaming)
   - [Themes and visualizers](#themes-and-visualizers)
 - [How it works](#how-it-works)
+- [Testing](#testing)
+- [Privacy](#privacy)
 - [Building a shippable app](#building-a-shippable-app)
 - [Project structure](#project-structure)
 - [Troubleshooting](#troubleshooting)
@@ -57,11 +62,22 @@ subscription, no telemetry, and it works offline.
 
 - **Runs entirely on your machine.** Audio is captured, transcribed, and
   discarded in memory. There is no server to send it to. Works with the network
-  cable unplugged.
-- **Fast on your GPU.** `large-v3-turbo` on CTranslate2 at int8 in ~1.5 GB VRAM.
-  On an RTX 4060 laptop, 5 seconds of speech transcribes in roughly 0.3 s.
+  cable unplugged. What Svara reads and writes is spelled out in
+  [`PRIVACY.md`](PRIVACY.md) — including the three features that are off by
+  default because they read more than your voice.
+- **Fast, and it tells you how fast.** `run.bat --bench` measures time-to-first-word,
+  p50/p95 streaming latency, WER and real-time factor **on your hardware**, and
+  writes the result with your machine's spec attached. Defaults are CPU-first
+  (`base.en`, int8); switch to `large-v3-turbo` on CUDA from the tray for the
+  accurate path (~1.5 GB VRAM).
 - **Live streaming.** Words appear at your cursor as you talk, about a second
   behind your voice — not only after you stop.
+- **It types where you actually work.** Terminals and TUI coding agents (Claude
+  Code, Codex, Cursor, Windsurf) get line-safe insertion — a dictated paragraph
+  can never press Enter for you. Cursor and VS Code get `Shift+Insert`, because
+  they've claimed `Ctrl+V`. And when the target runs as **administrator**, Svara
+  detects that Windows will silently discard the keystrokes, says so, and leaves
+  your words on the clipboard instead of losing them.
 - **90+ languages.** Dictate in any language Whisper understands, or let it
   **auto-detect** what you speak each time.
 - **Speak-to-translate.** Flip one switch and talk in any language; Svara writes
@@ -99,13 +115,31 @@ subscription, no telemetry, and it works offline.
 - **Never lose a dictation.** Crash-safe audio recovery on the next launch, a
   searchable local **History** window, and `Win+Alt+Z` to re-paste the last
   dictation into any field.
+- **Written the way your language is written.** French gets its narrow
+  non-breaking spaces before `; ! ? »` and a full one before `:` — suppressed
+  inside terminals, times and URLs, where an invisible character is a bug you
+  can't see. CJK loses the Latin-style spacing around `。！？、`. English picks a
+  side: **en-US / en-GB / en-CA / en-AU / en-IN** (Canadian correctly means
+  British *colour* with American *organize*), with the `-ise`/`-ize` exception
+  list that stops "surprize" and "advertize". Optional **Hinglish** romanisation
+  writes Hindi in Latin script and leaves the English words alone.
 - **AI on tap, not by default.** A Cleanup dial (None/Light/Medium/High),
-  "scratch that" retractions, `Win+Alt+P` **Polish** for selected text, per-app
-  tone styles, and an optional hold-and-speak **command key** — powered by your
-  own local LLM server, plain rules when you don't want one. Svara auto-detects
-  **Ollama** and any **OpenAI-compatible server (LM Studio, llama.cpp, Jan)**.
+  "scratch that" retractions, per-app tone styles, and an optional
+  hold-and-speak **command key** — powered by your own local LLM server, plain
+  rules when you don't want one. Svara auto-detects **Ollama** and any
+  **OpenAI-compatible server (LM Studio, llama.cpp, Jan)**.
+- **Nine transform slots.** Hotkey- and voice-addressable rewrites of your own
+  design ("apply concise"). Slot 1 is **Prompt Engineer** — it turns a rambled
+  thought into a structured prompt. Each slot can learn your voice from 1–5
+  samples of your own writing. `Win+Alt+O` shows exactly what a transform
+  changed, additions and strikethrough deletions, in your current theme's
+  colours; set `transforms.preview: auto` and nothing lands until you accept it.
 - **Whisper mode & scratchpad.** 3× mic gain for speaking softly at 2 a.m., and
-  a `Win+Alt+S` note window that autosaves locally.
+  a `Win+Alt+S` note window with tabs and a version log that tags every save as
+  *typed*, *dictated* or *transform* — so a rewrite is always undoable.
+- **It can learn your words, but only if you say so.** Opt-in auto-learn watches
+  the corrections *you* make and **suggests** dictionary entries after seeing the
+  same fix three times across two sessions. It never adds one on its own.
 
 ## Requirements
 
@@ -171,19 +205,26 @@ fall back to sensible defaults. Highlights below.
 
 ```yaml
 model:
-  name: large-v3-turbo   # tiny | base | small | medium | distil-large-v3
-                         # | large-v3 | large-v3-turbo
-  device: cuda           # cuda | cpu | auto
-  compute_type: int8_float16   # GPU: int8_float16 (fastest) | float16 · CPU: int8
+  name: base.en          # tiny | base | small | medium | distil-large-v3
+                         # | large-v3 | large-v3-turbo  (+ .en variants)
+  device: cpu            # cuda | cpu | auto
+  compute_type: int8     # GPU: int8_float16 (fastest) | float16 · CPU: int8
 ```
 
-| Model | VRAM (int8) | Speed | Accuracy |
+**The shipped default is `base.en` on CPU**, and first-run setup upgrades it if
+your machine can do better. That is deliberate: `base.en` was measured as the
+best live-streaming trade-off on a laptop CPU — a more accurate model that can't
+finish a partial pass inside the streaming interval makes dictation feel worse,
+not better. The tray's Model and Device menus switch live, and `--bench` will
+tell you what each one actually costs on your hardware.
+
+| Model | Memory (int8) | Speed | Accuracy |
 |---|---|---|---|
-| `tiny` / `base` | ~1 GB | fastest | rough |
+| `tiny` / **`base.en`** (default) | ~1 GB | fastest | rough / decent English |
 | `small` / `medium` | ~1–2 GB | fast | good |
-| `distil-large-v3` | ~1.5 GB | fast | very good |
-| **`large-v3-turbo`** (default) | ~1.5 GB | fast | excellent |
-| `large-v3` | ~3 GB | slower | best |
+| `distil-large-v3` | ~1.5 GB VRAM | fast | very good |
+| `large-v3-turbo` | ~1.5 GB VRAM | fast | excellent |
+| `large-v3` | ~3 GB VRAM | slower | best |
 
 Any multilingual model (everything except the `*.en` variants) understands 90+
 languages. Svara falls back to CPU automatically if CUDA is unavailable.
@@ -253,6 +294,77 @@ dictionary:
 - **`replacements`** and **`snippets`** run last in the cleanup pipeline, so your
   exact spellings always win — even over the optional LLM polish.
 
+### Where the text lands
+
+Svara picks an injection strategy from the app you are dictating into, because
+one setting cannot cover all of them.
+
+```yaml
+injection:
+  method: type              # the default for ordinary text fields
+  terminal_newline: space   # space | shift_enter | literal
+  warn_on_elevated: true
+  targets: {}               # override anything: { "myapp.exe": shift_insert }
+```
+
+- **Terminals and TUI coding agents** get line-safe insertion. A newline at a
+  shell prompt is the Enter key, so by default newlines collapse to spaces and
+  the trailing one is always stripped — a dictated paragraph arrives as one
+  editable line and *you* press Enter. Use `shift_enter` for multi-line prompts
+  in Claude Code and similar, where Shift+Enter is a soft break.
+- **Cursor, VS Code and Windsurf** get `Shift+Insert`, because `Ctrl+V` is
+  claimed there (in a shell it's readline's quoted-insert, not paste).
+- **Elevated windows.** Windows silently discards synthetic input aimed at a
+  higher-integrity process *and reports success*, so without a check your
+  dictation would vanish with no error anywhere. Svara detects it, tells you
+  once, and leaves the text on your clipboard.
+
+Live streaming is disabled for terminals and elevated windows — they get one
+clean insertion when you finish, because a half-typed line at a shell prompt is
+a line you can accidentally submit.
+
+### Locale, spelling and Hinglish
+
+```yaml
+locale:
+  typography: auto          # French/CJK spacing rules
+  english_variant: en-US    # en-US | en-GB | en-CA | en-AU | en-NZ | en-IN
+  romanize: never           # never | auto (chat + terminals) | always
+  numbered_lists: true      # "First… Second… Third…" → 1. 2. 3.
+```
+
+All rules, no model, no latency. The English variants share an exception list so
+`-ise`/`-ize` conversion never produces "surprize" or "advertize", and
+`Colorado` never becomes `Colourado`. French spacing is suppressed inside
+terminals, times (`12:30`), URLs and `` `code spans` `` — an invisible U+202F in
+a shell command is an error naming a character you cannot see. Also on the tray:
+**Writing ▸ English spelling** and **Writing ▸ Hinglish**.
+
+Hinglish romanisation is off by default and Hunterian-style: readable and lossy.
+It leaves the English half of a code-mixed sentence untouched.
+
+### Transforms and slots
+
+```yaml
+transforms:
+  preview: on_request       # auto | on_request | off
+  auto_after_dictation: null
+  slots:
+    1: {name: Prompt Engineer, builtin: prompt_engineer, hotkey: "<cmd>+<alt>+1"}
+    2:
+      name: Concise
+      prompt: "Tighten this without losing meaning."
+      hotkey: "<cmd>+<alt>+2"
+      samples: [samples/my-writing.txt]   # 1-5 files, 50-500 words each
+```
+
+Select text anywhere and press a slot's hotkey, or hold the command key and say
+"apply concise". `Win+Alt+O` shows what the last transform changed — additions
+in the theme's success colour, deletions struck through in its accent — and
+`preview: auto` gates every rewrite behind that view. Samples teach a slot your
+voice; Svara enforces the word bounds and a total prompt budget, because five
+500-word samples on a local 3B model is a latency cliff.
+
 ### Hotkey and recording modes
 
 ```yaml
@@ -302,18 +414,46 @@ The tray icon has a live theme picker, and your choice persists across restarts.
 
 | Stage | Tech |
 |---|---|
-| Audio capture | `sounddevice`, 16 kHz mono, with a pre-roll ring buffer |
+| Audio capture | `sounddevice`, 16 kHz mono, pre-roll ring buffer, policy-driven device choice |
 | Voice activity | Silero VAD (bundled) trims silence, prevents clipped words |
-| Speech to text | faster-whisper on CTranslate2, `large-v3-turbo` at int8 |
+| Speech to text | faster-whisper on CTranslate2, int8 |
 | Streaming | rolling re-transcription + LocalAgreement word commit |
-| Expressive | median-loudness → CAPS, filler regex, optional Ollama pass |
+| Context | Win32 foreground exe/title, integrity level, optional UIA caret text — all local |
+| Cleanup | an ordered **stage chain**: fillers → retractions → lists → LLM → typography → romanisation → per-app rules → your dictionary |
+| Expressive | median-loudness → CAPS, filler regex, optional local-LLM pass |
 | Hotkey | poll-only via `GetAsyncKeyState`, **no** system keyboard hook |
-| Text injection | Win32 `SendInput` and clipboard paste |
+| Text injection | strategy per target: `SendInput`, clipboard, `Shift+Insert`, or line-safe terminal insertion |
 | Overlay | per-pixel alpha via Pillow and `UpdateLayeredWindow` |
 | Packaging | PyInstaller |
 
 The model is warmed up at launch (one dummy transcribe) so CUDA/cuDNN kernels are
 compiled before your first real dictation, making the first word instant.
+
+[`ARCHITECTURE.md`](ARCHITECTURE.md) has the full module map, the pipeline's
+ordering invariants, the threading rules and the caching strategy.
+
+## Testing
+
+```bat
+.venv\Scripts\python.exe -m unittest discover -s tests -q
+```
+
+273 tests, about 17 seconds. Most are pure functions with no audio, model or
+network; `tests/test_livepath.py` loads a real model and pushes audio through
+the real streaming path end-to-end, asserting that nothing is duplicated or
+dropped at the stream/tail boundary.
+
+`tests/test_redact.py` is the privacy guarantee: it runs real text through the
+real pipeline with logging captured and fails if any of it reaches the log.
+
+```bat
+run.bat --bench          :: latency + WER on YOUR machine → bench/results/*.json
+```
+
+Exits non-zero if the latency budget (TTFW ≤ 300 ms, p95 ≤ 500 ms) is missed.
+Drop `<name>.wav` + `<name>.txt` pairs into `bench/corpus/` for accuracy numbers;
+without a corpus it measures latency and says WER was not measured rather than
+printing a flattering zero.
 
 ## Building a shippable app
 
@@ -329,20 +469,53 @@ double-click, no Python required. See [`SHIP.md`](SHIP.md) for details.
 
 ```
 mywhisper/            the Python app (module name kept as mywhisper)
-  app.py              orchestration: audio → transcribe → stream → inject
+  app.py              composition root + recording lifecycle
   transcriber.py      faster-whisper wrapper (model, language, task, warmup)
-  audio.py            mic capture + pre-roll ring buffer
+  audio.py            mic capture + pre-roll ring buffer + crash spill
+  audio_policy.py     which microphone, and when to switch
   hotkey.py           poll-only key listener + long-press/double-tap state
-  injector.py         Win32 SendInput / clipboard paste
-  cleanup.py          fillers, shout-to-caps, optional LLM polish
+  pipeline/           the cleanup stage chain — one stage per module
+    base.py           Stage protocol, UtteranceContext, fail-safe Chain
+    locale.py         French/CJK spacing, en-US/GB/CA spelling
+    transliterate.py  Devanagari → Latin (Hinglish)
+    lists.py          spoken enumerations → 1. 2. 3.
+  injection/          a strategy per target app (terminal, Shift+Insert, …)
+  injector.py         the Win32 primitives underneath it
+  context/            foreground app, integrity level, opt-in caret text
+  transforms/         slots 1-9, style samples, word diff, command mode
+  redact.py           keeps transcripts out of the log; stable error codes
+  bench.py            --bench: TTFW, p50/p95, WER, RTF
+  history.py          scratchpad.py   dictionary_io.py   autolearn.py
   overlay.py          the draggable live pill overlay
   tray.py             system tray icon, theme picker, toggles
+  howto_ui.py         Svara window, history, scratchpad, dictionary, diff
   themes.py           theme palettes
   cuda_setup.py       loads bundled CUDA runtime wheels
   doctor.py           mic / CUDA / GPU self-check
 config.yaml           every setting, documented inline
+ARCHITECTURE.md       module map, invariants, threading, caching
+PRIVACY.md            what is read and written, and how to turn it off
+PLAN.md               the roadmap this structure was built for
 web/                  the Next.js marketing site (Vercel + GitHub Pages)
 ```
+
+## Privacy
+
+Nothing you dictate leaves your machine — see [`PRIVACY.md`](PRIVACY.md) for the
+complete accounting: every file Svara writes, every network connection it can
+open (a model download, an update check, and your own local LLM), and why it
+carries no compliance certification (there is no processor to certify).
+
+Two things worth knowing here:
+
+- **The log file holds no transcripts.** Up to v0.4.1 it kept an 80-character
+  preview of every dictation, which outlived the history retention you
+  configured. As of 0.5.0 it records only shape — `«redacted» 12w/68c` — plus
+  stable error codes you can quote in an issue. `tests/test_redact.py` enforces it.
+- **Three features are off by default** because they read more than your voice:
+  `context.read_caret_text` (the text before your cursor),
+  `dictionary.auto_learn` (the corrections you make — suggest-only, never
+  silent), and `logging.debug_transcripts`.
 
 ## Troubleshooting
 

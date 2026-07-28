@@ -14,6 +14,11 @@ DEFAULTS: dict = {
         "device": "cpu",                # cuda | cpu | auto (setup switches GPU machines to cuda)
         "compute_type": "int8",         # GPU: int8_float16 (~1.5GB) or float16; CPU: int8
         "language": "en",               # ISO code, or null for auto-detect
+        "task": "transcribe",           # transcribe (write what you said) |
+                                        #   translate (any language in, English out)
+        "stream_language": "en",        # language for LIVE partials when language is
+                                        #   null — auto-detect is unreliable on the
+                                        #   sub-second buffers streaming works with
         "beam_size": 2,                 # final-pass beam: 2 = good, 1 = fastest, 5 = default
         "partial_beam_size": 2,         # live streaming beam: 2 balances speed + accuracy
         "initial_prompt": None,         # optional vocabulary hint for the decoder
@@ -35,10 +40,31 @@ DEFAULTS: dict = {
             "min_speech_ms": 300,
         },
     },
+    "logging": {
+        # OFF by default. On, every dictation is written to logs/mywhisper.log
+        # in plain text — which outlives history.retention_hours and gets
+        # pasted into bug reports. Only for debugging, and Svara says so.
+        "debug_transcripts": False,
+        "max_log_mb": 10,
+    },
     "injection": {
         "method": "type",               # type (Win32 SendInput) | paste (clipboard + Ctrl+V)
         "append_space": True,           # trailing space so consecutive dictations join nicely
         "restore_clipboard": True,      # (paste) restore previous clipboard content after
+        "targets": {},                  # {"exe": "type|paste|shift_insert|terminal"}
+                                        #   explicit override, wins over the lists below
+        "terminal_apps": None,          # None = the built-in list (injection.resolver)
+        "shift_insert_apps": None,      # editors whose Ctrl+V is claimed (Cursor, VS Code…)
+        "terminal_newline": "space",    # space | shift_enter | literal — how newlines are
+                                        #   sent at a shell prompt. "space" can never submit.
+        "terminal_paste": True,         # clipboard insert (fast) vs per-char typing (slow)
+        "warn_on_elevated": True,       # tell the user when the target runs as admin
+    },
+    "locale": {
+        "typography": "auto",           # auto | off — per-language spacing rules
+        "english_variant": "en-US",     # en-US | en-GB | en-CA | en-AU | en-NZ | en-IN
+        "romanize": "never",            # never | auto | always — Devanagari → Latin
+        "numbered_lists": True,         # "first… second… third…" → 1. 2. 3.
     },
     "cleanup": {
         "level": "light",               # none | light | medium | high (one dial:
@@ -73,6 +99,11 @@ DEFAULTS: dict = {
         "replacements": {},             # {"heard": "typed"} exact fixes, post-STT
         "snippets": {},                 # {"spoken trigger": "expanded text"}
         "spoken_punctuation": False,    # "period"/"comma"/"new line" → . , \n
+        # Watches corrections you make to text Svara typed and SUGGESTS
+        # dictionary entries. Never adds one on its own; suggestions wait in a
+        # review queue. Off by default — it reads text Svara did not produce.
+        "auto_learn": False,
+        "auto_learn_threshold": 3,      # same correction N times, across ≥2 sessions
     },
     "history": {
         "enabled": True,                # local dictation log (history.db)
@@ -86,6 +117,11 @@ DEFAULTS: dict = {
                       "telegram.exe", "ms-teams.exe", "signal.exe"],
         "styles": {},                   # {"slack.exe": "casual, friendly"} —
                                         # tone hint for the LLM cleanup
+        # Reads the text just before your caret so mid-sentence dictation is
+        # not capitalised. Off by default: this reads text Svara did not
+        # produce. Never logged, never stored, dropped after each utterance.
+        "read_caret_text": False,
+        "caret_chars": 200,
     },
     "shortcuts": {
         # Win+Alt family on purpose: Shift+Alt is the Windows keyboard-layout
@@ -95,6 +131,8 @@ DEFAULTS: dict = {
         "copy_last": "<cmd>+<alt>+x",       # copy it instead
         "polish": "<cmd>+<alt>+p",          # rewrite SELECTED text (needs local LLM)
         "scratchpad": "<cmd>+<alt>+s",      # toggle the notes window
+        "view_diff": "<cmd>+<alt>+o",       # review what the last transform changed
+        "dictionary": None,                 # e.g. "<cmd>+<alt>+d": the word editor
         "command_key": None,                # e.g. "f9": hold + speak an instruction
     },
     "update": {
@@ -104,6 +142,15 @@ DEFAULTS: dict = {
     "transforms": {
         "polish_prompt": None,          # custom Polish instruction (None = default)
         "max_chars": 8000,              # selection size limit for transforms
+        # Slots 1-9. Slot 1 defaults to Prompt Engineer unless you claim it.
+        # Each: {name, prompt | builtin, hotkey, samples: [paths]}
+        "slots": {
+            1: {"name": "Prompt Engineer", "builtin": "prompt_engineer",
+                "hotkey": "<cmd>+<alt>+1"},
+        },
+        "auto_after_dictation": None,   # slot number → runs on every dictation
+        "preview": "on_request",        # auto (confirm every rewrite) |
+                                        #   on_request (view_diff shortcut) | off
     },
     "streaming": {
         "mode": "live",                 # live (types words in real time as you speak)
@@ -116,6 +163,13 @@ DEFAULTS: dict = {
         "block_size": 512,
         "input_device": None,           # None = system default mic (see --list-devices)
         "gain": 1.0,                    # software mic boost (whisper mode uses 3.0)
+        "device_policy": "preferred",   # preferred (honour input_device) |
+                                        #   system_default (follow Windows) |
+                                        #   external_first (auto-switch to a headset
+                                        #   or dock mic the moment one appears)
+    },
+    "scratchpad": {
+        "enabled": True,                # the Win+Alt+S notes window (tabs + versions)
     },
     "ui": {
         "sounds": True,                 # beep on record start/stop

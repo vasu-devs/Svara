@@ -3,10 +3,19 @@
 __pycache__/
 *.pyc
 
-# Runtime artifacts
+# Runtime artifacts — per-user state, never committed
 logs/
 state.json
+history.db
+scratchpad.db
+scratchpad.txt
+dictionary.yaml
+learned.yaml
+.svara_ready
+.scratchpad_migrated
 *.wav
+# …except the benchmark corpus, which IS the shared reference set.
+!bench/corpus/*.wav
 
 # Build output (large — do not commit; built via build.bat)
 dist/

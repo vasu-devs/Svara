@@ -173,10 +173,13 @@ class TestLiveStreamingPath(unittest.TestCase):
             from mywhisper.app import MyWhisperApp
             app = MyWhisperApp(cfg, no_tray=True, transcriber=transcriber)
             app.injector = mock.MagicMock()
+            # Both take (text, ctx) since 0.5 — the injector resolves a
+            # strategy per target app.
             app.injector.inject_stream.side_effect = \
-                lambda t: (typed.append(t), len(t))[1]
+                lambda t, ctx=None: (typed.append(t), len(t))[1]
             app.injector.inject.side_effect = \
-                lambda t: (typed.append(t), len(t))[1]
+                lambda t, ctx=None: (typed.append(t), len(t))[1]
+            app.injector.streams_into.return_value = True
 
             worker = threading.Thread(target=app._worker, daemon=True)
             worker.start()

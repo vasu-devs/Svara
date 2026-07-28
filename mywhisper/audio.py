@@ -45,7 +45,9 @@ class Recorder:
         self._last_rms = 0.0  # for the overlay level meter
 
         self._device = audio_cfg["input_device"]
+        self._policy = str(audio_cfg.get("device_policy", "preferred"))
         self._on_device_change = on_device_change
+        self._last_device_scan = 0.0
         self._stream = self._make_stream()
 
         # Crash-safe spill: while recording, raw audio is streamed to disk on
@@ -119,6 +121,52 @@ class Recorder:
         except Exception:  # noqa: BLE001
             pass
 
+    def _candidates(self) -> list:
+        """Devices to try, in policy order (see `audio_policy`)."""
+        from .audio_policy import rank_devices
+
+        try:
+            devices = list(sd.query_devices())
+        except Exception:  # noqa: BLE001
+            return [self._device, None]
+        return rank_devices(devices, self._policy, preferred=self._device)
+
+    def current_device_name(self) -> str:
+        try:
+            return sd.query_devices(self._stream.device, "input")["name"]
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def reevaluate_device(self, min_interval_s: float = 5.0) -> bool:
+        """Under `external_first`, move to a better mic when one appears.
+
+        Called from the monitor thread while idle — never mid-recording, where
+        swapping the input stream would truncate the utterance being spoken.
+        """
+        if self._policy != "external_first" or self._recording:
+            return False
+        now = time.monotonic()
+        if now - self._last_device_scan < min_interval_s:
+            return False
+        self._last_device_scan = now
+        from .audio_policy import should_switch
+
+        try:
+            devices = list(sd.query_devices())
+        except Exception:  # noqa: BLE001
+            return False
+        current = self.current_device_name()
+        if not should_switch(self._policy, current, devices):
+            return False
+        log.info("device policy: a preferred microphone is available "
+                 "(currently on '%s') — switching", current)
+        try:
+            self._stream.stop()
+            self._stream.close()
+        except Exception:  # noqa: BLE001
+            pass
+        return self.ensure_alive()
+
     def ensure_alive(self) -> bool:
         """Reopen the stream if it died (headset unplugged, sleep/resume…).
 
@@ -144,15 +192,7 @@ class Recorder:
             sd._initialize()
         except Exception:  # noqa: BLE001
             pass
-        candidates: list = [self._device]
-        if self._device is not None:
-            candidates.append(None)  # system default
-        try:
-            for idx, dev in enumerate(sd.query_devices()):
-                if dev.get("max_input_channels", 0) > 0 and idx not in candidates:
-                    candidates.append(idx)
-        except Exception:  # noqa: BLE001
-            pass
+        candidates = self._candidates()
         for cand in candidates:
             try:
                 self._stream = self._make_stream(device=cand)
