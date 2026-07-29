@@ -17,6 +17,7 @@ import re
 import sys
 import threading
 import tkinter as tk
+from itertools import count
 from pathlib import Path
 
 log = logging.getLogger(__name__)
@@ -132,6 +133,25 @@ def _plan(cfg):
     return use_gpu, mlist, default
 
 
+def smooth_fraction(done: int, total: int, floor: float = 0.0) -> float:
+    """Download progress that never moves backwards.
+
+    The reported total GROWS during a multi-file download: huggingface_hub
+    creates one tqdm bar per file, as each file starts, so the denominator is
+    only complete once every file is under way. A naive done/total therefore
+    climbs, then jumps back the instant the next file's size lands, and the bar
+    visibly jitters for the whole download.
+
+    Clamping to a high-water mark fixes the jitter without lying: the byte
+    counts shown next to the bar stay exact, and the percentage simply refuses
+    to regress. Also clamped to 1.0, since a total that resolves late can
+    briefly leave done > total.
+    """
+    if total <= 0:
+        return floor
+    return max(floor, min(1.0, done / total))
+
+
 def _progress_tqdm(dl):
     """A tqdm stand-in that feeds byte progress into the shared ``dl`` dict.
 
@@ -143,12 +163,18 @@ def _progress_tqdm(dl):
     from tqdm.auto import tqdm as _tqdm
 
     lock = threading.Lock()
-    totals: dict = {}  # id(bar) -> last known byte total
+    totals: dict = {}   # bar key -> last known byte total
+    counter = count()   # NOT id(): see below
 
     class _Tqdm(_tqdm):
         def __init__(self, *a, **k):
             k["disable"] = True  # never render — we only want the numbers
             self._bytes = k.get("unit") == "B"
+            # id() is reused after garbage collection, so a finished bar's id
+            # can be handed to a later one. Combined with the max() below that
+            # permanently inflates the total, and the bar then stalls short of
+            # 100% for the rest of the download. A counter cannot alias.
+            self._key = next(counter)
             super().__init__(*a, **k)
 
         def update(self, n=1):
@@ -157,7 +183,7 @@ def _progress_tqdm(dl):
             with lock:
                 if n:
                     dl["done"] += n
-                totals[id(self)] = max(totals.get(id(self), 0), self.total or 0)
+                totals[self._key] = max(totals.get(self._key, 0), self.total or 0)
                 dl["total"] = sum(totals.values())
 
     return _Tqdm
@@ -349,6 +375,11 @@ def _run_setup_ctk(cfg, cfg_path):
             prog.configure(mode=mode)
             prog_mode["cur"] = mode
 
+    # High-water mark per phase, so the bar cannot run backwards when the next
+    # file's size lands and grows the denominator. Per phase, because the CUDA
+    # runtime and the model are two separate downloads that each start at zero.
+    seen = {"cuda": 0.0, "model_dl": 0.0}
+
     def _poll():
         if result["transcriber"] is not None:
             # Hand off: the app starts with this transcriber and immediately
@@ -365,7 +396,8 @@ def _run_setup_ctk(cfg, cfg_path):
             btn.configure(state="normal", text="Try again")
             return
         if dl["phase"] == "cuda" and dl["total"]:
-            frac = dl["done"] / dl["total"]
+            frac = smooth_fraction(dl["done"], dl["total"], seen["cuda"])
+            seen["cuda"] = frac
             try:
                 _set_prog_mode("determinate"); prog.set(frac)
             except Exception:  # noqa: BLE001
@@ -374,7 +406,8 @@ def _run_setup_ctk(cfg, cfg_path):
                 text=f"⬇  Downloading GPU support…   {dl['done'] >> 20} / {dl['total'] >> 20} MB   ·   {int(frac * 100)}%",
                 text_color=ACCENT)
         elif dl["phase"] == "model_dl" and dl["total"]:
-            frac = dl["done"] / dl["total"]
+            frac = smooth_fraction(dl["done"], dl["total"], seen["model_dl"])
+            seen["model_dl"] = frac
             try:
                 _set_prog_mode("determinate"); prog.set(frac)
             except Exception:  # noqa: BLE001
