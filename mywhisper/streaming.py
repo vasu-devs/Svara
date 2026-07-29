@@ -37,6 +37,7 @@ trimming can catch up. Closed segments (`segs[:-1]`) are never the active one,
 so this stays safe.
 """
 
+import difflib
 import logging
 import re
 from dataclasses import dataclass, field
@@ -211,8 +212,27 @@ def align_remainder(committed: list[str], words: list[str]) -> list[str]:
         if norm_committed[-k:] == norm_words[:k]:
             return _drop_seam_repeat(committed, list(words[k:]))
 
+    # 3. The two passes disagree about word boundaries, not just spelling.
+    #    base.en will hear "get hub" one pass and "GitHub" the next, so the
+    #    hypotheses have different LENGTHS and no prefix or overlap lines up.
+    #    Slicing by count then re-types the tail: "...to GitHub today. get hub
+    #    today." Diff the two instead and continue after the last piece of the
+    #    new hypothesis that corresponds to something already typed.
+    matcher = difflib.SequenceMatcher(a=norm_committed, b=norm_words,
+                                      autojunk=False)
+    resume = 0
+    for block in matcher.get_matching_blocks():
+        if block.size and block.a + block.size <= len(committed):
+            resume = max(resume, block.b + block.size)
+    if resume:
+        return _drop_seam_repeat(committed, list(words[resume:]))
+
+    # 4. A partial prefix agreed but nothing else did.
     if lcp:
         return _drop_seam_repeat(committed, list(words[lcp:]))
+
+    # 5. Nothing in common at all. Count is the only thing left, and typing a
+    #    little too much beats typing nothing.
     return _drop_seam_repeat(committed, list(words[len(committed):]))
 
 

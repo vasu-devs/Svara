@@ -216,6 +216,23 @@ class TestAlignRemainder(unittest.TestCase):
         out = align_remainder(["a", "b", "c"], ["x", "y", "z", "w"])
         self.assertEqual(out, ["w"])
 
+    def test_passes_disagreeing_on_word_boundaries(self):
+        # The real failure: base.en heard "GitHub" while streaming and
+        # "get hub" on the final pass. Different lengths, no common prefix, no
+        # tail/head overlap - counting re-typed the tail as
+        # "...to GitHub today. get hub today."
+        self.assertEqual(
+            align_remainder(["push", "to", "GitHub", "today."],
+                            ["push", "to", "get", "hub", "today."]),
+            [])
+
+    def test_boundary_disagreement_still_yields_genuinely_new_words(self):
+        self.assertEqual(
+            align_remainder(["push", "to", "GitHub", "today."],
+                            ["push", "to", "get", "hub", "today.", "and",
+                             "tell", "me"]),
+            ["and", "tell", "me"])
+
     def test_empty_final_pass(self):
         self.assertEqual(align_remainder(["a"], []), [])
 

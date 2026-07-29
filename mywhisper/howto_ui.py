@@ -137,6 +137,9 @@ def _ui_main():
                         _toggle_scratchpad(root, app)
                     elif kind == "dictionary":
                         _build_dictionary(root, app)
+                    elif kind == "settings":
+                        from .settings_ui import build as _build_settings
+                        _build_settings(root, app)
                     elif kind == "diff":
                         _build_diff(root, app, **kw)
                 except Exception:  # noqa: BLE001 — a broken window must not kill the thread

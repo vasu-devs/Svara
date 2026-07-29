@@ -226,6 +226,20 @@ class TestLiveStreamingPath(unittest.TestCase):
                          f"adjacent word(s) {repeats} typed twice — the "
                          f"stream/tail boundary duplicated them. Got: {norm!r}")
 
+        # Adjacent-repeat alone is not enough. When the two passes disagree on
+        # word boundaries ("get hub" vs "GitHub") the duplicated span does not
+        # start with a repeated word, and this slipped through as
+        # "...to GitHub today. get hub today." Word count catches any
+        # re-typed tail regardless of how it is spelled.
+        self.assertLessEqual(
+            len(typed_words), len(spoken) + 3,
+            f"typed {len(typed_words)} words for {len(spoken)} spoken — the "
+            f"tail was typed twice. Got: {norm!r}")
+        self.assertGreaterEqual(
+            len(typed_words), len(spoken) - 3,
+            f"typed only {len(typed_words)} words for {len(spoken)} spoken — "
+            f"words were dropped. Got: {norm!r}")
+
         rows = app.history.recent(5)
         self.assertTrue(rows, "live dictation was not recorded to history")
         hist_norm = re.sub(r"[^a-z0-9 ]", "", rows[0][3].lower())

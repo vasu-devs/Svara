@@ -160,9 +160,13 @@ class Tray:
             ),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(
+                "Settings…",
+                lambda icon, item: self.app.show_settings(),
+                default=True,  # double-clicking the tray icon opens it too
+            ),
+            pystray.MenuItem(
                 "How to use / Test…",
                 lambda icon, item: self.app.show_howto(),
-                default=True,  # double-clicking the tray icon opens it too
             ),
             pystray.MenuItem(
                 "History…",

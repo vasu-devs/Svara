@@ -571,6 +571,10 @@ class MyWhisperApp:
         from .howto_ui import show_dictionary
         show_dictionary(self)
 
+    def show_settings(self):
+        from .settings_ui import show_settings
+        show_settings(self)
+
     # -- locale (live) --------------------------------------------------------
 
     def set_english_variant(self, variant: str):
