@@ -34,6 +34,35 @@ def ensure_config() -> Path:
     return p
 
 
+def reference_config_path() -> Path:
+    return base_dir() / "config.reference.yaml"
+
+
+def write_reference_config() -> Path | None:
+    """Drop this build's fully-commented config next to the user's own.
+
+    `ensure_config()` only seeds config.yaml when there isn't one, which is
+    right — nobody's settings should be overwritten by an update. But it means
+    an upgrading user keeps a config.yaml that has never heard of the options
+    added since. Everything still *works* (missing keys fall back to defaults),
+    they just have no way to discover it.
+
+    So the current documented config is written alongside, read-only in intent,
+    refreshed every launch. Copy a block out of it into config.yaml to use it.
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    bundled = Path(getattr(sys, "_MEIPASS", base_dir())) / "config.yaml"
+    dest = reference_config_path()
+    try:
+        if bundled.is_file():
+            shutil.copyfile(bundled, dest)
+            return dest
+    except OSError:
+        pass
+    return None
+
+
 def state_path() -> Path:
     return base_dir() / "state.json"
 

@@ -9,7 +9,7 @@ import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/l
 // and CDN edges can keep serving an old cached response for that URL
 // indefinitely. A new version number means a genuinely new URL every time,
 // so a "fresh download" can never silently be a stale one.
-const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-0.4.2.exe";
+const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-0.5.0.exe";
 const GITHUB = "https://github.com/vasu-devs/Svara";
 
 const SPY = [
@@ -27,16 +27,17 @@ const STEPS: { n: string; mvt: string; viz: Style; title: string; body: string; 
 
 const FEATURES: { n: string; title: string; tag: string; body: string }[] = [
   { n: "01", title: "Runs on your own machine", tag: "on-device", body: "Audio is captured, written, and discarded locally. There is no server to reach — nothing to upload, ever." },
-  { n: "02", title: "Instant on your GPU", tag: "gpu speed", body: "faster-whisper on CTranslate2, large-v3-turbo at int8 in ~1.5 GB of VRAM. Roughly a second from spoken to written." },
+  { n: "02", title: "Fast, and it proves it", tag: "measured", body: "faster-whisper on CTranslate2. Ships CPU-first and steps up to your GPU in one click — and `--bench` measures the latency and error rate on your own hardware instead of asking you to trust a number." },
   { n: "03", title: "Ninety-plus languages", tag: "90+ langs", body: "Dictate in any language Whisper understands, or let it auto-detect what you speak each time." },
   { n: "04", title: "Speak to translate", tag: "translate", body: "Flip one switch and talk in any language — Svara writes clean English at your cursor." },
   { n: "05", title: "Shout to CAPITALISE", tag: "emphasis", body: "Raise your voice on a word and it lands in caps. Loudness-aware and shout-proof, so only real emphasis counts." },
   { n: "06", title: "Cleaned up as you talk", tag: "clean-up", body: "Automatic punctuation, filler removal, self-corrections on the fly. Optional local-LLM polish via Ollama — still offline." },
-  { n: "07", title: "Writes into every app", tag: "everywhere", body: "System-wide injection places your words at the cursor anywhere you can type: editors, browsers, terminals." },
-  { n: "08", title: "Moves out of your way", tag: "stays clear", body: "The pill reads the caret of the app you are in and slides aside the instant it would cover what you are typing." },
-  { n: "09", title: "Free and open source", tag: "open source", body: "No account, no subscription, no telemetry on your voice. The whole thing is yours to read, fork, and build." },
+  { n: "07", title: "Safe in a terminal", tag: "dev-ready", body: "A newline at a shell prompt is the Enter key. Svara knows, so a dictated paragraph lands as one editable line and never runs itself — in Windows Terminal, Claude Code, Codex, Cursor or Windsurf." },
+  { n: "08", title: "Written the way you write it", tag: "typography", body: "French gets its non-breaking spaces, CJK loses its Latin spacing, and English picks a side: US, British, Canadian, Australian or Indian spelling." },
+  { n: "09", title: "Moves out of your way", tag: "stays clear", body: "The pill reads the caret of the app you are in and slides aside the instant it would cover what you are typing." },
+  { n: "10", title: "Free and open source", tag: "open source", body: "No account, no subscription, no telemetry on your voice. The whole thing is yours to read, fork, and build." },
 ];
-const FEAT_VIZ: Style[] = ["strings", "beam", "spectrum", "scope", "pulse", "bars", "beam", "strings", "particles"];
+const FEAT_VIZ: Style[] = ["strings", "beam", "spectrum", "scope", "pulse", "bars", "beam", "spectrum", "strings", "particles"];
 
 const STATS = [
   { shown: "0", count: 0, suffix: "", label: "bytes uploaded", accent: false },
@@ -50,7 +51,11 @@ const COMPARE = [
   { label: "Works offline", svara: "Yes, fully", cloud: "No" },
   { label: "Cost", svara: "Free, forever", cloud: "$12–15 / month" },
   { label: "Account required", svara: "None", cloud: "Sign-up + login" },
-  { label: "Latency", svara: "~1s, local", cloud: "Network round-trip" },
+  // Deliberately not claiming a latency win: a datacentre GPU is quick, and
+  // Svara's own published numbers (BENCH.md) put the CPU default at ~0.8s.
+  // What is actually true is that there is no round-trip and no queue.
+  { label: "Latency", svara: "No round-trip", cloud: "Network + queue" },
+  { label: "Safe in terminals", svara: "Never runs your text", cloud: "Not handled" },
   { label: "Telemetry on your voice", svara: "Zero", cloud: "Varies" },
   { label: "Source", svara: "Open · AGPL-3.0", cloud: "Closed" },
 ];

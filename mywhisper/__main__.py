@@ -169,6 +169,26 @@ def main() -> int:
     cfg_path = args.config or ensure_config()
     cfg = config_mod.load(cfg_path)
 
+    # Upgrades never touch the user's config.yaml, so someone coming from an
+    # older build has no way to discover options added since. Keep this build's
+    # fully-commented config alongside it as a reference.
+    from .paths import write_reference_config
+    reference = write_reference_config()
+    if reference is not None:
+        try:
+            import yaml
+            raw = yaml.safe_load(Path(cfg_path).read_text(encoding="utf-8")) or {}
+            # The RAW file, not the merged config — load() fills in every
+            # default, so a merged view can never look out of date.
+            missing = [k for k in config_mod.DEFAULTS if k not in raw]
+        except Exception:  # noqa: BLE001 — this is a hint, never a failure
+            missing = []
+        if missing:
+            logging.getLogger(__name__).info(
+                "your config.yaml predates these sections: %s — they are "
+                "running on defaults. See %s for the documented settings.",
+                ", ".join(missing), reference.name)
+
     # Now that `logging:` is known, apply it (and warn loudly if the user has
     # turned transcript logging on — it writes everything they dictate to disk).
     redact.install(cfg.get("logging"))
