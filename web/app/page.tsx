@@ -9,7 +9,11 @@ import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/l
 // and CDN edges can keep serving an old cached response for that URL
 // indefinitely. A new version number means a genuinely new URL every time,
 // so a "fresh download" can never silently be a stale one.
-const DOWNLOAD = "https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-0.5.0.exe";
+// Single source of truth: the label and the URL are built from the same
+// constant, so the page can never advertise one version and serve another.
+const VERSION = "0.5.1";
+const SIZE_MB = 103;
+const DOWNLOAD = `https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-${VERSION}.exe`;
 const GITHUB = "https://github.com/vasu-devs/Svara";
 
 const SPY = [
@@ -249,6 +253,12 @@ export default function Page() {
             <div className="hero-cta" style={{ animation: "hfade 1.6s ease both" }}>
               <Magnetic s={0.3}><a className="btn btn-solid" href={DOWNLOAD}><span>Download Svara.exe</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
               <a className="btn btn-ghost" href={GITHUB} target="_blank" rel="noopener">View source</a>
+              {/* Inline in the CTA row rather than stacked beneath it: the hero
+                  already carries a kicker, headline, lede, CTAs and stats, and
+                  a sixth stacked element is where a hero starts to sprawl.
+                  This is spec a visitor wants before a 103 MB download, not a
+                  decorative version badge. */}
+              <span className="hero-meta">v{VERSION} · Windows · {SIZE_MB} MB</span>
             </div>
             <div className="hero-stats" style={{ animation: "hfade 1.7s ease both" }}>
               <div><div className="n">0</div><div className="l">Bytes uploaded</div></div>

@@ -219,6 +219,32 @@ class TestAlignRemainder(unittest.TestCase):
     def test_empty_final_pass(self):
         self.assertEqual(align_remainder(["a"], []), [])
 
+    def test_decoder_repeating_the_seam_word_is_dropped(self):
+        # The live-path failure: the final pass genuinely decodes the boundary
+        # word twice, so nothing is misaligned and alignment alone cannot help.
+        # committed ends "...to"; the final pass emits "to get hub" again.
+        self.assertEqual(
+            align_remainder(["push", "the", "code", "to"],
+                            ["push", "the", "code", "to", "to", "get", "hub"]),
+            ["get", "hub"])
+
+    def test_seam_dedup_ignores_case_and_punctuation(self):
+        self.assertEqual(
+            align_remainder(["hello", "World"], ["hello", "World", "world,", "again"]),
+            ["again"])
+
+    def test_a_repeat_further_along_is_left_alone(self):
+        # Only the exact seam is de-duplicated. A doubled word later in the
+        # remainder is the speaker's, not the decoder's.
+        self.assertEqual(
+            align_remainder(["a", "b"], ["a", "b", "c", "d", "d", "e"]),
+            ["c", "d", "d", "e"])
+
+    def test_legitimate_repeats_not_on_the_seam_survive(self):
+        self.assertEqual(
+            align_remainder(["she", "said"], ["she", "said", "that", "that", "was", "fine"]),
+            ["that", "that", "was", "fine"])
+
 
 if __name__ == "__main__":
     unittest.main()

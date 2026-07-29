@@ -203,17 +203,37 @@ def align_remainder(committed: list[str], words: list[str]) -> list[str]:
     while lcp < limit and _norm(committed[lcp]) == _norm(words[lcp]):
         lcp += 1
     if lcp == len(committed):
-        return list(words[lcp:])
+        return _drop_seam_repeat(committed, list(words[lcp:]))
 
     norm_committed = [_norm(w) for w in committed]
     norm_words = [_norm(w) for w in words]
     for k in range(limit, 0, -1):
         if norm_committed[-k:] == norm_words[:k]:
-            return list(words[k:])
+            return _drop_seam_repeat(committed, list(words[k:]))
 
     if lcp:
-        return list(words[lcp:])
-    return list(words[len(committed):])
+        return _drop_seam_repeat(committed, list(words[lcp:]))
+    return _drop_seam_repeat(committed, list(words[len(committed):]))
+
+
+def _drop_seam_repeat(committed: list[str], remainder: list[str]) -> list[str]:
+    """Drop a remainder that starts by repeating the last word already typed.
+
+    Alignment cannot fix this one, because nothing is misaligned: the final
+    pass genuinely decodes the boundary word twice. faster-whisper runs a
+    different beam over a window whose end moved, and around a word straddling
+    that edge it will sometimes emit it once for the streamer and again for the
+    finaliser. The user sees "push the code to to get hub".
+
+    Only the exact seam is considered - the last committed word against the
+    first remaining one - so a real doubled word further along is untouched.
+    English does have "had had" and "that that", but they are rare, and they
+    are rarer still landing precisely on a decode boundary; a dropped duplicate
+    is a far smaller error than a visible stutter in every long dictation.
+    """
+    if committed and remainder and _norm(committed[-1]) == _norm(remainder[0]):
+        return remainder[1:]
+    return remainder
 
 
 # ---------------------------------------------------------------------------

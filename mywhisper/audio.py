@@ -17,6 +17,8 @@ import time
 import numpy as np
 import sounddevice as sd
 
+from .redact import E_AUDIO_DEV
+
 log = logging.getLogger(__name__)
 
 
@@ -48,7 +50,24 @@ class Recorder:
         self._policy = str(audio_cfg.get("device_policy", "preferred"))
         self._on_device_change = on_device_change
         self._last_device_scan = 0.0
-        self._stream = self._make_stream()
+        # A failure here must NOT kill the app.
+        #
+        # At login the HKCU Run entry fires early — routinely before the
+        # Windows Audio service has finished enumerating endpoints, and later
+        # still for a USB or Bluetooth headset. sd.InputStream() then raises,
+        # and an unguarded construction takes the whole process down: no tray,
+        # no hotkey, dictation silently gone until the user launches it by
+        # hand. Which looks exactly like "it stopped working after I rebooted".
+        #
+        # The monitor thread already calls ensure_alive() every 3 seconds and
+        # already handles a missing stream, so starting without one is
+        # recoverable by machinery that exists. Starting not at all is not.
+        self._stream = None
+        try:
+            self._stream = self._make_stream()
+        except Exception:  # noqa: BLE001 — PortAudioError and friends
+            log.warning("%s no microphone at startup — the app stays up and "
+                        "retries every few seconds", E_AUDIO_DEV, exc_info=True)
 
         # Crash-safe spill: while recording, raw audio is streamed to disk on
         # a writer thread (never in the audio callback), so a crash/power-loss
@@ -109,10 +128,26 @@ class Recorder:
 
     # -- stream lifecycle ---------------------------------------------------
 
-    def open(self):
-        self._stream.start()
-        dev = sd.query_devices(self._stream.device, "input")
-        log.info("Microphone: %s @ %d Hz", dev["name"], self.sr)
+    def open(self) -> bool:
+        """Start capturing. Returns whether a microphone is live.
+
+        Same reasoning as the constructor: at login this can fail because the
+        audio stack is not up yet, and that must not stop the hotkey being
+        armed. `ensure_alive()` picks it up within a few seconds, and the user
+        gets a toast naming the device when it does.
+        """
+        try:
+            if self._stream is None:
+                self._stream = self._make_stream()
+            self._stream.start()
+            dev = sd.query_devices(self._stream.device, "input")
+            log.info("Microphone: %s @ %d Hz", dev["name"], self.sr)
+            return True
+        except Exception:  # noqa: BLE001
+            log.warning("%s microphone not available yet — retrying in the "
+                        "background", E_AUDIO_DEV, exc_info=True)
+            self._stream = None
+            return False
 
     def close(self):
         try:
@@ -176,13 +211,22 @@ class Recorder:
         silently dead dictation.
         """
         try:
-            if self._stream.active:
+            if self._stream is not None and self._stream.active:
+                self._retry_logged = False
                 return True
         except Exception:  # noqa: BLE001
             pass
-        log.warning("audio stream inactive — reopening…")
+        # This runs every 3 seconds. On a machine with no microphone at all
+        # that would be a warning every 3 seconds forever, so say it once and
+        # drop to debug until a device actually comes back.
+        if not getattr(self, "_retry_logged", False):
+            self._retry_logged = True
+            log.warning("%s audio stream unavailable — reopening…", E_AUDIO_DEV)
+        else:
+            log.debug("audio stream still unavailable — retrying")
         try:
-            self._stream.close()
+            if self._stream is not None:
+                self._stream.close()
         except Exception:  # noqa: BLE001
             pass
         try:
@@ -210,7 +254,12 @@ class Recorder:
                 return True
             except Exception as e:  # noqa: BLE001
                 log.debug("mic candidate %r failed: %s", cand, e)
-        log.error("no working microphone found — will retry")
+        # Leaving a half-constructed stream here would make the next call
+        # think one exists and try to .close() it forever.
+        self._stream = None
+        # Every-3-seconds error logging fills the file on any machine that
+        # simply has no microphone. The first one already said it.
+        log.debug("no working microphone found — will keep retrying")
         return False
 
     # -- audio callback (keep it light!) -------------------------------------

@@ -253,5 +253,78 @@ class TestAutostart(InstallTestBase):
         self.assertEqual(install._version_tuple("1.2b.x"), (1, 2, 0))
 
 
+class TestExeFromCommand(unittest.TestCase):
+    """The Run key stores a command line, not a path."""
+
+    def test_quoted_path_with_args(self):
+        self.assertEqual(
+            install._exe_from_command(r'"C:\Apps\Svara\Svara.exe" --autostart'),
+            r"C:\Apps\Svara\Svara.exe")
+
+    def test_quoted_path_with_spaces(self):
+        self.assertEqual(
+            install._exe_from_command(r'"C:\Program Files\Svara\Svara.exe" --autostart'),
+            r"C:\Program Files\Svara\Svara.exe")
+
+    def test_unquoted_path(self):
+        self.assertEqual(install._exe_from_command(r"C:\Apps\Svara.exe --autostart"),
+                         r"C:\Apps\Svara.exe")
+
+    def test_empty(self):
+        self.assertEqual(install._exe_from_command(""), "")
+        self.assertEqual(install._exe_from_command(None), "")
+
+
+@unittest.skipUnless(os.name == "nt", "Windows registry only")
+class TestAutostartReportsTheTruth(unittest.TestCase):
+    """`autostart_registered()` answers "will Svara launch at login", not "is
+    there a value under the Run key".
+
+    Those differ whenever the registered path is stale - an install that moved,
+    a re-lettered drive, a path written by something since deleted. The old
+    check said yes, the user saw a ticked Startup box, rebooted, and found no
+    Svara. Reporting it as off is truthful AND actionable: ensure_autostart()
+    repairs it on the next launch.
+    """
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="svara-autostart-"))
+        self.addCleanup(lambda: shutil.rmtree(self.tmp, ignore_errors=True))
+
+    def _with_run_value(self, value):
+        """Patch winreg so the Run key reports `value`, without touching the
+        user's real registry."""
+        fake = mock.MagicMock()
+        fake.__enter__ = lambda s: s
+        fake.__exit__ = lambda s, *a: False
+        patch_open = mock.patch("winreg.OpenKey", return_value=fake)
+        patch_query = mock.patch("winreg.QueryValueEx", return_value=(value, 1))
+        return patch_open, patch_query
+
+    def test_true_when_the_target_exists(self):
+        exe = self.tmp / "Svara.exe"
+        exe.write_bytes(b"stub")
+        po, pq = self._with_run_value(f'"{exe}" --autostart')
+        with po, pq:
+            self.assertTrue(install.autostart_registered())
+
+    def test_false_when_the_target_is_gone(self):
+        missing = self.tmp / "deleted" / "Svara.exe"
+        po, pq = self._with_run_value(f'"{missing}" --autostart')
+        with po, pq:
+            self.assertFalse(
+                install.autostart_registered(),
+                "a Run key pointing at a deleted exe must not report as enabled")
+
+    def test_false_when_the_value_is_empty(self):
+        po, pq = self._with_run_value("")
+        with po, pq:
+            self.assertFalse(install.autostart_registered())
+
+    def test_false_when_the_key_is_absent(self):
+        with mock.patch("winreg.OpenKey", side_effect=OSError("no key")):
+            self.assertFalse(install.autostart_registered())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

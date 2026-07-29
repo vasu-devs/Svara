@@ -328,7 +328,7 @@ def run_bench(cfg: dict, repeats: int = 3, save: bool = True) -> Result:
           + (f" · {result.machine['gpu']}" if result.machine.get("gpu") else ""))
 
     t0 = time.perf_counter()
-    transcriber = Transcriber(mcfg)
+    transcriber = Transcriber(mcfg, required=True)
     result.warmup_s = round(time.perf_counter() - t0, 2)
     result.device = transcriber.device_used
     result.compute_type = transcriber.compute_used

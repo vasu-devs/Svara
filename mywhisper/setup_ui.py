@@ -234,7 +234,10 @@ def _load_model(cfg, cfg_path, model, use_gpu, dl):
     _download_model(model, mcfg, dl)
     dl["phase"] = "model"
     from .transcriber import Transcriber
-    transcriber = Transcriber(mcfg)  # may silently fall back to cpu internally
+    # required=True: first-run setup has a human watching a progress bar. A
+    # failure here must surface as "Setup failed — Try again", not as a window
+    # that closes onto an app that cannot transcribe.
+    transcriber = Transcriber(mcfg, required=True)  # may fall back to cpu internally
     # Write the ACTUAL outcome, not the plan — Transcriber's own fallback
     # ladder can quietly land on cpu/int8 even when use_gpu was true (e.g.
     # a CUDA/cuDNN mismatch that only surfaces during kernel init), and

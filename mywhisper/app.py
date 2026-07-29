@@ -295,7 +295,10 @@ class MyWhisperApp:
                 mcfg = dict(self.cfg["model"])
                 mcfg.update(name=value, device=dev, compute_type=comp)
                 _download_model(value, mcfg, {"done": 0, "total": 0})
-                new = Transcriber(mcfg)  # loads + warms up
+                # required=True: a switch that fails must raise so the handler
+                # below toasts and KEEPS the working model. Silently swapping
+                # in a dead transcriber would take dictation down on purpose.
+                new = Transcriber(mcfg, required=True)  # loads + warms up
                 self.transcriber = new
                 self.cfg["model"]["name"] = value
                 self.cfg["model"]["device"] = new.device_used
@@ -371,7 +374,10 @@ class MyWhisperApp:
                                      "meanwhile…")
                 mcfg = dict(self.cfg["model"])
                 mcfg.update(device=device, compute_type=comp)
-                new = Transcriber(mcfg)  # loads + warms up
+                # required=True: a switch that fails must raise so the handler
+                # below toasts and KEEPS the working model. Silently swapping
+                # in a dead transcriber would take dictation down on purpose.
+                new = Transcriber(mcfg, required=True)  # loads + warms up
                 self.transcriber = new
                 self.cfg["model"]["device"] = new.device_used
                 self.cfg["model"]["compute_type"] = new.compute_used
@@ -742,6 +748,12 @@ class MyWhisperApp:
     def start_recording(self):
         if self.paused or self.recorder.recording:
             return
+        # Say why nothing is going to happen, rather than opening the pill and
+        # swallowing the utterance. The monitor thread is retrying the load.
+        if not self.transcriber.ready:
+            self._notify("Still loading the speech model — try again in a "
+                         "moment. (Check logs/mywhisper.log if this persists.)")
+            return
         self._cap_warned = False
         # Context snapshot: which app gets this dictation (per-app rules,
         # injection strategy, locale), and its window title's proper nouns →
@@ -900,6 +912,14 @@ class MyWhisperApp:
                     # dock mic the moment one appears — only while idle, never
                     # mid-utterance.
                     self.recorder.reevaluate_device()
+                    # A model that failed to load at login (no network yet,
+                    # half-written cache) gets picked up here rather than
+                    # leaving the app permanently mute.
+                    if not self.transcriber.ready and self.transcriber.retry():
+                        self._notify("Speech model loaded — Svara is ready. "
+                                     f"Double-tap {self.cfg['recording']['hotkey']} "
+                                     "and speak.")
+                        self._refresh_tray()
                 continue
             if self.recorder.elapsed() > rec_cfg["max_seconds"]:
                 log.info("max duration reached — stopping")
@@ -1160,7 +1180,14 @@ class MyWhisperApp:
 
     def run(self):
         self._recover_lost_dictation()
-        self.recorder.open()
+        # The hotkey arms whether or not a microphone answered. At login the
+        # Run entry fires before the audio stack is always ready, and an app
+        # that refuses to start because of that is an app the user finds dead
+        # after every reboot. The monitor thread reopens the mic within a few
+        # seconds; until then the tray, the shortcuts and the window all work.
+        if not self.recorder.open():
+            self._notify("Starting up — your microphone isn't ready yet. "
+                         "Svara will pick it up automatically in a moment.")
         self.hotkey.start()
         self.quickkeys.start()
         if self.command_mode:
@@ -1239,7 +1266,7 @@ class MyWhisperApp:
 def run_mic_test(cfg: dict, seconds: int):
     """`--test N`: record N seconds from the mic and print the transcription."""
     print(f"Loading model '{cfg['model']['name']}'…")
-    transcriber = Transcriber(cfg["model"])
+    transcriber = Transcriber(cfg["model"], required=True)
     recorder = Recorder(cfg["audio"], cfg["recording"])
     recorder.open()
     time.sleep(0.5)  # let the stream + pre-roll settle

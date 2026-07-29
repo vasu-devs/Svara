@@ -158,7 +158,7 @@ class TestLiveStreamingPath(unittest.TestCase):
         cfg["streaming"]["mode"] = "live"
 
         from mywhisper.transcriber import Transcriber
-        transcriber = Transcriber(cfg["model"])
+        transcriber = Transcriber(cfg["model"], required=True)
 
         overlay = mock.MagicMock()
         listener = mock.MagicMock()

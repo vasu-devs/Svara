@@ -91,6 +91,11 @@ em{font-style:italic;color:var(--accent);transition:color .6s}
 .hero-title span{display:block}
 .hero-lede{margin:0;max-width:42ch;font-size:clamp(1.02rem,1.3vw,1.2rem);color:var(--ink-2);line-height:1.6}
 .hero-cta{display:flex;gap:.7rem;flex-wrap:wrap;align-items:center}
+/* Same small-meta treatment as .hero-kicker and .hero-stats .l — mono, muted,
+   uppercase-adjacent. No new colour, no new type role, so it reads as part of
+   the existing system rather than a badge bolted on. */
+.hero-meta{font-family:var(--font-mono),monospace;font-size:.66rem;letter-spacing:.1em;
+  color:var(--ink-3);white-space:nowrap}
 .hero-stats{display:flex;gap:clamp(1.4rem,3vw,2.6rem);margin-top:.3rem}
 .hero-stats .n{font-family:var(--font-serif),serif;font-size:clamp(1.5rem,2.2vw,2.1rem);line-height:1}
 .hero-stats .n.accent{font-style:italic;color:var(--accent);transition:color .6s}

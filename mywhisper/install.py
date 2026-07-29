@@ -244,16 +244,48 @@ def _purge_applied_updates(current_version: str) -> None:
 
 # -- login autostart (HKCU Run key — per-user, no admin needed) ---------------
 
+def _exe_from_command(command: str) -> str:
+    """`"C:\\path\\Svara.exe" --autostart` → `C:\\path\\Svara.exe`."""
+    command = (command or "").strip()
+    if command.startswith('"'):
+        end = command.find('"', 1)
+        return command[1:end] if end > 0 else command[1:]
+    return command.split(" ")[0]
+
+
 def autostart_registered() -> bool:
+    """Whether Svara will ACTUALLY launch at login.
+
+    Deliberately not "is there a value under the Run key". A value pointing at
+    an exe that no longer exists — install moved, drive re-lettered, a path
+    written by something that has since been deleted — reads as registered
+    while Windows silently launches nothing at login.
+
+    That is the worst possible answer to give: the user sees the Startup box
+    ticked, reboots, finds no Svara, and concludes the feature is broken rather
+    than unset. Reporting it as off is both truthful and actionable, and
+    `ensure_autostart()` then repairs it on the next launch.
+    """
     if os.name != "nt":
         return False
     try:
         import winreg
         with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
             value, _ = winreg.QueryValueEx(k, APP_NAME)
-        return bool(value)
     except OSError:
         return False
+    if not value:
+        return False
+    target = _exe_from_command(str(value))
+    try:
+        if not Path(target).is_file():
+            log.warning("autostart points at a file that no longer exists "
+                        "(%s) — reporting it as off so it gets repaired",
+                        target)
+            return False
+    except OSError:
+        return False
+    return True
 
 
 def set_autostart(enabled: bool) -> bool:
