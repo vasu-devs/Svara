@@ -114,3 +114,40 @@ class TestConfigIntegrity(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCiDependencies(unittest.TestCase):
+    """Twice now a new test has gone red in CI only because it imported a
+    package the dev venv happened to have and the runner did not. Both times
+    the code was fine and the workflow was wrong, which is the least useful
+    kind of red. This checks the pairing locally, before the push."""
+
+    WORKFLOW = ROOT / ".github" / "workflows" / "tests.yml"
+
+    # Third-party modules the pure test suite reaches at import time. Anything
+    # added here must also appear in the workflow's pip install line.
+    REQUIRED = {"yaml": "pyyaml", "pynput": "pynput", "numpy": "numpy",
+                "sounddevice": "sounddevice", "tqdm": "tqdm"}
+
+    def test_workflow_installs_everything_the_suite_imports(self):
+        if not self.WORKFLOW.is_file():
+            self.skipTest("workflow not present")
+        text = self.WORKFLOW.read_text(encoding="utf-8")
+        install = [ln for ln in text.splitlines() if "pip install" in ln]
+        self.assertTrue(install, "no pip install step found in tests.yml")
+        joined = " ".join(install)
+        missing = [pkg for pkg in self.REQUIRED.values() if pkg not in joined]
+        self.assertFalse(
+            missing,
+            f"tests.yml does not install {missing} — CI will go red on import "
+            "even though the code is fine")
+
+    def test_every_required_package_is_actually_imported_somewhere(self):
+        # The mirror: stops the install line growing stale with packages no
+        # test needs any more.
+        import importlib
+        for module in self.REQUIRED:
+            try:
+                importlib.import_module(module)
+            except ImportError:
+                self.skipTest(f"{module} not installed locally either")

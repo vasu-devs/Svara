@@ -16,6 +16,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from mywhisper.setup_ui import smooth_fraction  # noqa: E402
 
+# smooth_fraction is pure and always testable. The tqdm shim needs tqdm, which
+# arrives via huggingface_hub rather than requirements.txt directly, so guard
+# it instead of failing a machine that only has the light dependencies.
+try:
+    import tqdm  # noqa: F401
+    HAVE_TQDM = True
+except ImportError:
+    HAVE_TQDM = False
+
 
 class TestSmoothFraction(unittest.TestCase):
     def test_basic_progress(self):
@@ -74,6 +83,7 @@ class TestSmoothFraction(unittest.TestCase):
                         "scenario no longer reproduces the regression")
 
 
+@unittest.skipUnless(HAVE_TQDM, "tqdm not installed")
 class TestProgressTqdm(unittest.TestCase):
     """The tqdm shim that feeds the numbers."""
 

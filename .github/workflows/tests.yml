@@ -25,8 +25,17 @@ jobs:
       # so test_app_smoke cannot even import the app without it. The wheel
       # bundles PortAudio and importing it does not require an audio device;
       # the tests mock Recorder anyway.
+      # Keep this in sync with what the unit-tested modules import at module
+      # level. Twice now a new test has gone red here only because a transitive
+      # dependency the dev venv already had was missing on the runner, so each
+      # entry says which module needs it:
+      #   pyyaml       config, dictionary_io
+      #   pynput       quickkeys
+      #   numpy        bench, test_livepath
+      #   sounddevice  audio (imported by app.py at module level)
+      #   tqdm         setup_ui's download-progress shim
       - name: Install test dependencies
-        run: pip install pyyaml pynput numpy sounddevice
+        run: pip install pyyaml pynput numpy sounddevice tqdm
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
 
