@@ -11,7 +11,7 @@ import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/l
 // so a "fresh download" can never silently be a stale one.
 // Single source of truth: the label and the URL are built from the same
 // constant, so the page can never advertise one version and serve another.
-const VERSION = "0.5.1";
+const VERSION = "0.5.2";
 const SIZE_MB = 103;
 const DOWNLOAD = `https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-${VERSION}.exe`;
 const GITHUB = "https://github.com/vasu-devs/Svara";

@@ -265,9 +265,21 @@ def _run_setup_ctk(cfg, cfg_path):
     root.configure(fg_color=BG)
     W = 580
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    H = min(760, sh - 80)
-    root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
-    root.minsize(520, 560)
+    # winfo_screenheight() reports PHYSICAL pixels (the process is per-monitor
+    # DPI aware), while CTk's geometry() is in LOGICAL ones and scales them up.
+    # So `min(760, sh - 80)` looked like it left an 80px margin and actually
+    # rendered 950px tall on a 125% display, pushing the model list and the
+    # status line past the bottom edge — on the first screen a new user sees.
+    # Convert the available height into the same units geometry() speaks.
+    try:
+        scale = float(ctk.ScalingTracker.get_window_scaling(root))
+    except Exception:  # noqa: BLE001
+        scale = 1.0
+    usable = int((sh - 56) / max(scale, 0.1))
+    H = max(560, min(860, usable))
+    root.geometry(f"{W}x{H}+{(sw - W) // 2}"
+                  f"+{max(0, int((sh - H * scale) / 2) - 20)}")
+    root.minsize(520, 540)
     try:
         root.attributes("-topmost", True)
         root.lift()
@@ -341,7 +353,13 @@ def _run_setup_ctk(cfg, cfg_path):
     ctk.CTkLabel(head, text="CHOOSE A MODEL", text_color=SUB,
                  font=ctk.CTkFont(size=11, weight="bold")).pack(anchor="w", pady=(16, 2))
 
-    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent", scrollbar_button_color="#cbb79f")
+    # An explicit height matters: without one the scrollable frame REQUESTS as
+    # much room as its cards need, so with four or five models it pushes itself
+    # and the Start button past the bottom of the window instead of scrolling.
+    # A small request lets pack give it whatever is actually left over, and the
+    # frame scrolls inside that — which is the entire point of the widget.
+    scroll = ctk.CTkScrollableFrame(root, fg_color="transparent", height=180,
+                                    scrollbar_button_color="#cbb79f")
     scroll.pack(side="top", fill="both", expand=True, padx=20)
 
     choice = {"value": default}

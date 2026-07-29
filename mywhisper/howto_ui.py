@@ -693,7 +693,7 @@ def _build(root, app, first_run=False):
 
     root.title("Svara — You're all set" if first_run else "Svara")
     root.configure(bg=BG)
-    W = 560
+    W = 660
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     H = min(760, sh - 90)
     root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
@@ -749,16 +749,25 @@ def _build(root, app, first_run=False):
 
     steps = tk.Frame(root, bg=CARD)
     steps.pack(fill="x", padx=26)
-    for n, a, b in ((" 1 ", "Double-tap", f"{hk}  — Svara starts listening"),
-                    (" 2 ", "Speak", "your words type at the cursor"),
-                    (" 3 ", "Tap", f"{hk}  again to finish   ·   hold it = "
-                                   "push-to-talk   ·   quick tap = cancel")):
+    # Step 3 used to carry three clauses on one unwrapped line, so the last of
+    # them ("quick tap = cancel") ran off the right edge and the user never saw
+    # how to cancel. The extras move to their own quiet line underneath.
+    for n, a, b, extra in (
+            (" 1 ", "Double-tap", f"{hk}  — Svara starts listening", ""),
+            (" 2 ", "Speak", "your words type at the cursor", ""),
+            (" 3 ", "Tap", f"{hk}  again to finish",
+             "hold it instead to push-to-talk  ·  a quick tap cancels")):
         row = tk.Frame(steps, bg=CARD)
-        row.pack(fill="x", padx=14, pady=5)
+        row.pack(fill="x", padx=14, pady=(5, 0))
         tk.Label(row, text=n + a, bg=CARD, fg=ACCENT,
                  font=("Segoe UI Semibold", 11)).pack(side="left")
-        tk.Label(row, text="  " + b, bg=CARD, fg=FG,
-                 font=("Segoe UI", 11)).pack(side="left")
+        tk.Label(row, text="  " + b, bg=CARD, fg=FG, font=("Segoe UI", 11),
+                 wraplength=W - 120, justify="left").pack(side="left")
+        if extra:
+            tk.Label(steps, text=extra, bg=CARD, fg=SUB,
+                     font=("Segoe UI", 9), wraplength=W - 80,
+                     justify="left").pack(anchor="w", padx=(46, 14),
+                                          pady=(1, 4))
 
     # --- settings: everything the tray offers, also reachable right here —
     # this window (opened by double-clicking Svara.exe again) is how most
@@ -892,9 +901,11 @@ def _build(root, app, first_run=False):
     tk.Button(row, text="Add word", bg=CARD, fg=ACCENT, bd=0, padx=10, pady=3,
               cursor="hand2", font=("Segoe UI", 9), command=_add_word
               ).pack(side="left", padx=(6, 0))
-    tk.Label(row, text="a name Svara mishears? add it",
-             bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
-                                                       padx=(10, 0))
+    # Shortened and clipped-proof: the old copy ran off the right edge, so the
+    # user saw "a name Svara mishear" and nothing else.
+    tk.Label(row, text="a name it mishears?", bg=BG, fg=SUB,
+             font=("Segoe UI", 9), wraplength=170,
+             justify="left").pack(side="left", padx=(10, 0))
 
     # --- start with Windows: THE reliability setting. Svara only feels
     # dependable if the hotkey works after every reboot without the user
@@ -927,10 +938,14 @@ def _build(root, app, first_run=False):
     box = tk.Text(root, bg=CARD, fg=FG, insertbackground=ACCENT,
                   relief="flat", font=("Segoe UI", 12), wrap="word",
                   padx=12, pady=10, height=4)
-    box.pack(fill="both", expand=True, padx=26)
 
+    # Footer first, anchored to the bottom, THEN the expanding text box. The
+    # other way round the box claims the remaining height and pushes the
+    # version line and the Close button off the bottom edge — the same failure
+    # the diff and scratchpad windows had.
     foot = tk.Frame(root, bg=BG)
-    foot.pack(fill="x", padx=26, pady=(10, 16))
+    foot.pack(side="bottom", fill="x", padx=26, pady=(10, 16))
+    box.pack(fill="both", expand=True, padx=26)
     from . import __version__
     tk.Label(foot, text=f"Svara v{__version__}  ·  {app.model_label}  ·  "
                         "more in the tray icon (near the clock)",
