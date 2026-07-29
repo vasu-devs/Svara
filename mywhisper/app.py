@@ -238,7 +238,7 @@ class MyWhisperApp:
         """Whether the ACTIVE model understands non-English speech (gates the
         language picker — offering Hindi on an English-only model is a trap)."""
         try:
-            return bool(self.transcriber.model.model.is_multilingual)
+            return bool(self.transcriber.capabilities.multilingual)
         except Exception:  # noqa: BLE001
             return True
 
