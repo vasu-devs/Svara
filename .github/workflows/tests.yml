@@ -21,8 +21,12 @@ jobs:
       # (faster-whisper/CUDA/sounddevice) is deliberately not exercised here.
       # numpy is needed because bench.py and the live-path test import it at
       # module level; test_livepath itself skips without faster-whisper.
+      # sounddevice is needed because app.py imports audio.py at module level,
+      # so test_app_smoke cannot even import the app without it. The wheel
+      # bundles PortAudio and importing it does not require an audio device;
+      # the tests mock Recorder anyway.
       - name: Install test dependencies
-        run: pip install pyyaml pynput numpy
+        run: pip install pyyaml pynput numpy sounddevice
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
 

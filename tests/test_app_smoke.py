@@ -25,6 +25,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from mywhisper import config as config_mod  # noqa: E402
 from mywhisper.pipeline import UtteranceContext  # noqa: E402
 
+# Constructing the app pulls in audio.py, which imports sounddevice at module
+# level. Skip rather than error where the audio stack isn't installed, so a
+# machine without it still gets a useful result from the rest of the suite.
+try:
+    import sounddevice  # noqa: F401
+    HAVE_AUDIO = True
+except Exception:  # noqa: BLE001 — missing PortAudio raises OSError, not ImportError
+    HAVE_AUDIO = False
+
+def setUpModule():
+    if not HAVE_AUDIO:
+        raise unittest.SkipTest("sounddevice unavailable")
+
 
 def everything_on(cfg: dict) -> dict:
     cfg["ui"]["tray"] = False
