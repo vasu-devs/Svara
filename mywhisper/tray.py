@@ -108,6 +108,24 @@ class Tray:
 
             return pystray.MenuItem(label, action, checked=is_checked, radio=True)
 
+        def variant_item(code, label):
+            def action(icon, item):
+                self.app.set_english_variant(code)
+
+            def is_checked(item):
+                return self.app.english_variant == code
+
+            return pystray.MenuItem(label, action, checked=is_checked, radio=True)
+
+        def romanize_item(mode, label):
+            def action(icon, item):
+                self.app.set_romanize(mode)
+
+            def is_checked(item):
+                return self.app.romanize_mode == mode
+
+            return pystray.MenuItem(label, action, checked=is_checked, radio=True)
+
         def level_item(level, label):
             def action(icon, item):
                 self.app.set_cleanup_level(level)
@@ -119,6 +137,14 @@ class Tray:
 
         from .howto_ui import LANGS
         from .setup_ui import _CPU_OK, MODELS
+
+        ENGLISH_VARIANTS = [
+            ("en-US", "American — color, organize"),
+            ("en-GB", "British — colour, organise"),
+            ("en-CA", "Canadian — colour, organize"),
+            ("en-AU", "Australian — colour, organise"),
+            ("en-IN", "Indian — colour, organise"),
+        ]
 
         # A GPU-only model would otherwise silently load on CPU (tens of
         # seconds per utterance) if picked here — matching setup's own
@@ -195,11 +221,40 @@ class Tray:
                 pystray.Menu(*[bg_item(n) for n in BGS]),
             ),
             pystray.MenuItem(
+                "Writing",
+                pystray.Menu(
+                    pystray.MenuItem(
+                        "English spelling",
+                        pystray.Menu(*[variant_item(*v) for v in ENGLISH_VARIANTS]),
+                    ),
+                    pystray.MenuItem(
+                        "Hinglish (write Hindi in Latin script)",
+                        pystray.Menu(
+                            romanize_item("never", "Off — keep Devanagari"),
+                            romanize_item("auto", "In chat & terminals"),
+                            romanize_item("always", "Always"),
+                        ),
+                    ),
+                ),
+            ),
+            pystray.MenuItem(
                 "Dictionary",
                 pystray.Menu(
                     pystray.MenuItem(
                         "Edit words, fixes & snippets…",
+                        lambda icon, item: self.app.show_dictionary(),
+                    ),
+                    pystray.MenuItem(
+                        "Open dictionary.yaml",
                         lambda icon, item: self.app.edit_dictionary(),
+                    ),
+                    pystray.MenuItem(
+                        lambda item: (
+                            f"Suggestions ({len(self.app.learn_queue.pending())})…"),
+                        lambda icon, item: self.app.show_dictionary(),
+                        # Only meaningful once auto-learn has something to ask.
+                        visible=lambda item: bool(
+                            self.app.learn_queue.pending()),
                     ),
                     pystray.MenuItem(
                         "Reload (apply changes now)",

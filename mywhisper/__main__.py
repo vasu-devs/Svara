@@ -90,6 +90,11 @@ def main() -> int:
                         help="record N seconds from the mic, print the transcription, exit")
     parser.add_argument("--doctor", action="store_true",
                         help="run environment diagnostics and exit")
+    parser.add_argument("--bench", action="store_true",
+                        help="measure latency (TTFW, p50/p95), WER and RTF on "
+                             "this machine, then exit")
+    parser.add_argument("--bench-repeats", type=int, default=3, metavar="N",
+                        help="benchmark passes per clip (default 3)")
     parser.add_argument("--probe", action="store_true",
                         help="press keys to see their names/codes (find your Fn key)")
     parser.add_argument("--portable", action="store_true",
@@ -132,6 +137,11 @@ def main() -> int:
     )
     # ctranslate2/faster_whisper are chatty at DEBUG
     logging.getLogger("faster_whisper").setLevel(logging.INFO)
+    # Attach the transcript-redaction filter BEFORE anything can log. The
+    # config isn't loaded yet, so this installs the safe default (no transcript
+    # content); it is reconfigured from `logging:` once the config is read.
+    from . import redact
+    redact.install(None)
 
     if args.list_devices:
         import sounddevice as sd
@@ -159,6 +169,37 @@ def main() -> int:
     cfg_path = args.config or ensure_config()
     cfg = config_mod.load(cfg_path)
 
+    # Upgrades never touch the user's config.yaml, so someone coming from an
+    # older build has no way to discover options added since. Keep this build's
+    # fully-commented config alongside it as a reference.
+    from .paths import write_reference_config
+    reference = write_reference_config()
+    if reference is not None:
+        try:
+            import yaml
+            raw = yaml.safe_load(Path(cfg_path).read_text(encoding="utf-8")) or {}
+            # The RAW file, not the merged config — load() fills in every
+            # default, so a merged view can never look out of date.
+            missing = [k for k in config_mod.DEFAULTS if k not in raw]
+        except Exception:  # noqa: BLE001 — this is a hint, never a failure
+            missing = []
+        if missing:
+            logging.getLogger(__name__).info(
+                "your config.yaml predates these sections: %s — they are "
+                "running on defaults. See %s for the documented settings.",
+                ", ".join(missing), reference.name)
+
+    # Now that `logging:` is known, apply it (and warn loudly if the user has
+    # turned transcript logging on — it writes everything they dictate to disk).
+    redact.install(cfg.get("logging"))
+    try:
+        cap = int((cfg.get("logging") or {}).get("max_log_mb", 10))
+        for handler in logging.getLogger().handlers:
+            if hasattr(handler, "maxBytes"):
+                handler.maxBytes = max(1, cap) * 1024 * 1024
+    except (TypeError, ValueError):
+        pass
+
     # Last theme/visualizer picked via tray or pill buttons wins over config.
     sp = state_path()
     if sp.is_file():
@@ -185,6 +226,11 @@ def main() -> int:
                 cfg["audio"]["whisper_mode"] = True
             if saved.get("hotkey"):
                 cfg["recording"]["hotkey"] = saved["hotkey"]
+            if saved.get("english_variant"):
+                cfg.setdefault("locale", {})["english_variant"] = \
+                    saved["english_variant"]
+            if saved.get("romanize"):
+                cfg.setdefault("locale", {})["romanize"] = saved["romanize"]
         except (OSError, ValueError):
             pass
 
@@ -205,6 +251,11 @@ def main() -> int:
         from .doctor import run_doctor
 
         return run_doctor(cfg, dll_dirs)
+
+    if args.bench:
+        from .bench import main as run_bench
+
+        return run_bench(cfg, repeats=max(1, args.bench_repeats))
 
     if args.test is not None:
         from .app import run_mic_test

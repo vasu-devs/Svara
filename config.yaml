@@ -22,6 +22,10 @@ model:
   partial_beam_size: 2        # live-streaming beam: 2 balances speed and accuracy (1=fastest, 5=most accurate)
   initial_prompt: null        # vocabulary hint, e.g. "MyWhisper, faster-whisper, CTranslate2"
   download_root: null         # model cache dir (null = HuggingFace default)
+  batched: auto               # auto | off — BatchedInferencePipeline for the FINAL pass
+                              #   (faster-whisper >=1.1). Silently falls back if the
+                              #   installed version rejects our arguments.
+  batch_size: 8
 
 recording:
   mode: hold_to_record        # hold_to_record:  hold key = talk · tap = cancel · DOUBLE-TAP = hands-free
@@ -44,12 +48,58 @@ recording:
     enabled: false            # off by default — YOU decide when it stops; set true if you
     silence_ms: 900           #   want it to auto-finish ~0.9s after you stop talking
     min_speech_ms: 300
+    semantic: false           # look at WHAT was said, not just how long you paused.
+                              #   "…send it to the team and" is you thinking; "…the team."
+                              #   is you finished. Keeps listening through mid-clause
+                              #   pauses instead of cutting you off.
+    max_silence_ms: 2500      # hard ceiling — an unfinished sentence can never hold the
+                              #   recording open indefinitely
+
+logging:
+  debug_transcripts: false    # 🔒 OFF. On, every word you dictate is written to
+                              #   logs/mywhisper.log in PLAIN TEXT — it outlives
+                              #   history.retention_hours and gets pasted into bug
+                              #   reports. Only turn this on to debug, then turn it off.
+  max_log_mb: 10              # log rotation cap
 
 injection:
   method: type                # type  = Win32 SendInput, char-perfect, clipboard untouched
                               # paste = clipboard + Ctrl+V, fastest for long text
   append_space: true          # trailing space so consecutive dictations join nicely
   restore_clipboard: true     # (paste method) restore your old clipboard afterwards
+  # ── where the text is landing ────────────────────────────────────────────
+  # Svara picks a strategy per app. Terminals get line-safe insertion (a newline
+  # at a shell prompt is the Enter key); Cursor/VS Code get Shift+Insert because
+  # they've claimed Ctrl+V; everything else gets the method above.
+  targets: {}                 # explicit override, wins over everything:
+                              #   targets: { "myapp.exe": shift_insert }
+                              #   (type | paste | shift_insert | terminal)
+  terminal_apps: null         # null = the built-in list (Windows Terminal, cmd,
+                              #   PowerShell, pwsh, alacritty, wezterm, kitty, wsl…)
+  shift_insert_apps: null     # null = built-in (cursor.exe, windsurf.exe, code.exe)
+  terminal_newline: space     # how newlines are sent at a shell prompt:
+                              #   space       = collapse to spaces (SAFE — can never submit)
+                              #   shift_enter = soft line break (Claude Code, Codex…)
+                              #   literal     = send real newlines (they WILL execute)
+  terminal_paste: true        # clipboard insert (fast) vs per-char typing (slow in a PTY)
+  warn_on_elevated: true      # an admin window silently discards synthetic input —
+                              #   Svara detects it, says so, and leaves the text on
+                              #   your clipboard instead of losing it
+
+locale:                       # how your words are WRITTEN (rules only — no model, no latency)
+  typography: auto            # auto | off
+                              #   French: narrow no-break space before ; ! ? » and
+                              #     a full NBSP before : (suppressed in terminals,
+                              #     times like 12:30, URLs and `code spans`)
+                              #   CJK: strips Latin-style spacing around 。！？、
+  english_variant: en-US      # en-US | en-GB | en-CA | en-AU | en-NZ | en-IN
+                              #   color/colour, organize/organise, theater/theatre…
+                              #   (en-CA = British -our + American -ize, correctly)
+  romanize: never             # Hinglish: write Hindi in Latin script
+                              #   never (default) | auto (chat + terminals) | always
+                              #   क्या हाल है → kya haal hai · English words untouched
+  numbered_lists: true        # "First… Second… Third…" → 1. 2. 3.
+                              #   (needs cleanup.level ≥ medium; never in terminals)
 
 cleanup:
   level: light                # ONE dial for cleanup intensity:
@@ -95,6 +145,13 @@ dictionary:                   # YOUR words — tray icon ▸ Dictionary ▸ Edit
                               #     "sign off": "Best,\nVasudev"
   spoken_punctuation: false   # true → saying "period" / "comma" / "new line" /
                               #   "question mark" / "bullet point" types . , ⏎ ? -
+  auto_learn: false           # 🔒 watch the corrections YOU make to text Svara
+                              #   typed, and SUGGEST dictionary entries. Never adds
+                              #   one by itself — suggestions wait in a review queue
+                              #   (tray ▸ Dictionary ▸ Suggestions). Needs
+                              #   context.read_caret_text on as well, because it
+                              #   reads text Svara did not produce.
+  auto_learn_threshold: 3     # same correction N times, across ≥2 separate sessions
 
 history:
   enabled: true               # keep a local, searchable log of every dictation
@@ -110,6 +167,12 @@ context:                      # look at the app you're dictating INTO (all local
   styles: {}                  # per-app tone for the AI cleanup, e.g.:
                               #   styles: { "slack.exe": "casual and friendly",
                               #             "outlook.exe": "professional email tone" }
+  read_caret_text: false      # 🔒 read the text just before your caret, so dictating
+                              #   mid-sentence isn't capitalised ("and then we " +
+                              #   "Went to…" → "went to…"). Off by default: this reads
+                              #   text Svara did not produce. Never logged, never
+                              #   stored, discarded after each utterance.
+  caret_chars: 200            # hard cap on how much is read
 
 shortcuts:                    # global chords (pynput syntax; <cmd> = Win key)
                               # Win+Alt family on purpose — Shift+Alt would toggle
@@ -118,8 +181,11 @@ shortcuts:                    # global chords (pynput syntax; <cmd> = Win key)
   copy_last: "<cmd>+<alt>+x"      # copy the last dictation instead
   polish: "<cmd>+<alt>+p"         # rewrite SELECTED text in place (needs a local LLM)
   scratchpad: "<cmd>+<alt>+s"     # toggle the scratchpad note window
+  view_diff: "<cmd>+<alt>+o"      # what did that last transform actually change?
+  dictionary: null                # e.g. "<cmd>+<alt>+d" — the word/fix/snippet editor
   command_key: null               # e.g. f9 — HOLD it and SAY what to do with the
-                                  #   selected text ("make this friendlier")
+                                  #   selected text ("make this friendlier", or a
+                                  #   slot name: "apply concise")
 
 update:
   check: true                 # check GitHub for new Svara releases in the background;
@@ -127,17 +193,53 @@ update:
                               #   update" in the tray
   hours: 24
 
-transforms:
+transforms:                   # rewrite SELECTED text anywhere, with your local LLM
   polish_prompt: null         # custom instruction for the Polish shortcut (null = default:
                               #   clearer + more concise, same meaning and tone)
   max_chars: 8000             # selection size limit
+  preview: on_request         # auto       = show a diff and apply only what you accept
+                              # on_request = apply now; Win+Alt+O shows what changed
+                              # off        = never show a diff
+  auto_after_dictation: null  # slot number → run it on EVERY finished dictation
+  slots:                      # 1-9, each hotkey- and voice-addressable ("apply concise")
+    1:
+      name: Prompt Engineer   # slot 1 is this unless you claim it: turns a rambled
+      builtin: prompt_engineer  # thought into a structured prompt for an AI
+      hotkey: "<cmd>+<alt>+1"
+    # 2:
+    #   name: Concise
+    #   prompt: "Tighten this without losing meaning."
+    #   hotkey: "<cmd>+<alt>+2"
+    #   samples: [samples/my-writing.txt]   # 1-5 files, 50-500 words each — the
+    #                                       #   model matches YOUR voice, not an
+    #                                       #   adjective's idea of it
 
 streaming:
   mode: live                  # live    = words are TYPED at your cursor in real time as you talk
                               # preview = words only shown inside the pill; typed after you stop
                               # off     = classic batch (transcribe only after you stop)
   interval_ms: 180            # how often the rolling buffer is re-transcribed (lower = snappier)
+                              #   NOTE: on CPU a pass costs ~800ms, so the loop runs
+                              #   back-to-back and this is a floor, not a schedule.
+                              #   See BENCH.md.
   min_audio_s: 0.35           # wait for this much audio before the first word appears
+  commit_policy: local_agreement   # local_agreement = a word is typed once two passes
+                                   #   agree on it (stable, the default)
+                                   # adaptive = stops holding a word back once the
+                                   #   hypothesis has proved settled (snappier, newer)
+  hold_back: 1                # words kept back after agreement — the last agreed word is
+                              #   the one still being spoken. 0 = type it immediately.
+  confident_after: 12         # (adaptive) agreement run length that earns hold_back 0
+  max_window_s: 30            # cap on the re-decoded window; past it, trimming gets more
+                              #   aggressive so speech with no pauses can't grow it
+                              #   forever (0 = no cap)
+  context_prompt_words: 0     # feed the last N typed words back to the decoder as
+                              #   context. 0 = off — measure with --bench first; it can
+                              #   improve continuation OR induce repetition.
+
+asr:
+  backend: faster-whisper     # the only engine today. The seam exists so another can be
+                              #   benchmarked in (mywhisper/asr/) — see PLAN.md §7.
 
 audio:
   sample_rate: 16000
@@ -145,6 +247,15 @@ audio:
   input_device: null          # null = default mic; see: python -m mywhisper --list-devices
   gain: 1.0                   # software mic boost (tray ▸ Whisper mode toggles 3.0
                               #   for speaking-softly-at-2am dictation)
+  device_policy: preferred    # preferred      = honour input_device, fall back if it dies
+                              # system_default = always follow the Windows default
+                              # external_first = auto-switch to a headset / dock mic
+                              #   the moment one appears (the docked-laptop case)
+
+scratchpad:
+  enabled: true               # Win+Alt+S notes: multiple tabs, autosaved, and a
+                              #   version log tagging every save as typed / dictated
+                              #   / transform, so a rewrite is always undoable
 
 ui:
   sounds: true                # beep on record start/stop

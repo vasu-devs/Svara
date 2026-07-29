@@ -15,14 +15,18 @@ import time
 
 import numpy as np
 
-from . import appcontext
 from .audio import Recorder
-from .cleanup import CleanupPipeline
+from .context import ContextProvider
+from .endpoint import should_finish
 from .history import History
 from .hotkey import create_listener
-from .injector import TextInjector
+from .injection import TextInjector
 from .overlay import Overlay
+from .pipeline import CleanupPipeline, UtteranceContext
 from .quickkeys import QuickKeys
+from .redact import E_STT_DECODE, E_STT_STREAM, redact, shape
+from .scratchpad import Scratchpad
+from .streaming import StreamState, align_remainder, make_policy
 from .transcriber import Transcriber
 from .transforms import CommandMode, Transformer
 from .tray import Tray
@@ -92,6 +96,11 @@ class MyWhisperApp:
         self._model_switch = False
         self._active_app = ""      # exe about to receive the dictation
         self._active_title = ""
+        # The per-utterance context (target app, locale, terminal/chat/elevated
+        # flags, optional caret text). Captured once at recording start so the
+        # rest of the run is a pure function of it.
+        self.context_provider = ContextProvider(cfg)
+        self._ctx: UtteranceContext = UtteranceContext()
         self._cap_warned = False   # one max-duration warning per recording
         self.recorder = Recorder(
             cfg["audio"], cfg["recording"],
@@ -99,22 +108,60 @@ class MyWhisperApp:
                 f"Microphone changed — now listening on: {name}"))
         from .paths import logs_dir
         self.recorder.set_spill_path(logs_dir() / "recovery.raw")
-        self.injector = TextInjector(cfg["injection"])
-        self.cleanup = CleanupPipeline(cfg["cleanup"], cfg.get("dictionary"))
+        self.injector = TextInjector(cfg["injection"], notify=self._notify)
+        self.cleanup = CleanupPipeline(cfg["cleanup"], cfg.get("dictionary"),
+                                       locale_cfg=cfg.get("locale"),
+                                       context_cfg=cfg.get("context"))
         self.history = History(cfg.get("history"))
+        self.scratchpad = Scratchpad(
+            bool((cfg.get("scratchpad") or {}).get("enabled", True)))
         self.whisper_mode = bool(cfg["audio"].get("whisper_mode", False))
         if self.whisper_mode:
             self.recorder.gain = self.WHISPER_GAIN
         self.updater = Updater(notify=self._notify)
         self.transformer = Transformer(self.cleanup.llm, cfg.get("transforms"),
                                        history=self.history,
-                                       notify=self._notify)
-        self.quickkeys = QuickKeys(cfg.get("shortcuts"), {
+                                       notify=self._notify, app=self)
+        # Auto-learn needs BOTH opt-ins: it is built on reading text Svara did
+        # not produce, so the caret permission gates the dictionary one.
+        dict_cfg = cfg.get("dictionary") or {}
+        ctx_cfg = cfg.get("context") or {}
+        from .autolearn import AutoLearner
+        from .dictionary_io import LearnQueue
+        self.learn_queue = LearnQueue(
+            threshold=int(dict_cfg.get("auto_learn_threshold", 3)))
+        self.auto_learner = AutoLearner(
+            self.learn_queue,
+            enabled=bool(dict_cfg.get("auto_learn", False))
+            and bool(ctx_cfg.get("read_caret_text", False)),
+            notify=self._notify)
+        if dict_cfg.get("auto_learn") and not ctx_cfg.get("read_caret_text"):
+            log.info("dictionary.auto_learn is on but context.read_caret_text "
+                     "is off — auto-learn needs to read the field it typed "
+                     "into, so it stays disabled")
+
+        shortcuts = dict(cfg.get("shortcuts") or {})
+        actions = {
             "paste_last": self.paste_last,
             "copy_last": self.copy_last,
             "polish": self.transformer.polish,
             "scratchpad": self.show_scratchpad,
-        })
+            "view_diff": self.transformer.view_last_diff,
+            "dictionary": self.show_dictionary,
+        }
+        # Transform slots 1-9 bind through the same mechanism; the registry
+        # already rejected duplicate combos, so a slot can never silently
+        # shadow one of the built-ins above.
+        for combo, run in self.transformer.registry.hotkey_map(
+                self.transformer.run_slot).items():
+            name = f"slot:{combo}"
+            if combo in shortcuts.values():
+                log.warning("transform hotkey %s is already a Svara shortcut — "
+                            "the slot binding is skipped", combo)
+                continue
+            shortcuts[name] = combo
+            actions[name] = run
+        self.quickkeys = QuickKeys(shortcuts, actions)
         self.current_theme = cfg["ui"].get("theme", "minimal-dark")
         self.current_wave = cfg["ui"].get("wave", "strings")
         self.current_bg = cfg["ui"].get("bg", "gradient")
@@ -191,7 +238,7 @@ class MyWhisperApp:
         """Whether the ACTIVE model understands non-English speech (gates the
         language picker — offering Hindi on an English-only model is a trap)."""
         try:
-            return bool(self.transcriber.model.model.is_multilingual)
+            return bool(self.transcriber.capabilities.multilingual)
         except Exception:  # noqa: BLE001
             return True
 
@@ -514,6 +561,36 @@ class MyWhisperApp:
         from .howto_ui import show_scratchpad
         show_scratchpad(self)
 
+    def show_dictionary(self):
+        from .howto_ui import show_dictionary
+        show_dictionary(self)
+
+    # -- locale (live) --------------------------------------------------------
+
+    def set_english_variant(self, variant: str):
+        """en-US / en-GB / en-CA … — spelling conventions for English output."""
+        self.cfg.setdefault("locale", {})["english_variant"] = variant
+        self.cleanup.set_locale_option("english_variant", variant)
+        self.context_provider.cfg = self.cfg
+        self._save_state(english_variant=variant)
+        self._refresh_tray()
+        log.info("english variant → %s", variant)
+
+    def set_romanize(self, mode: str):
+        self.cfg.setdefault("locale", {})["romanize"] = mode
+        self.cleanup.set_locale_option("romanize", mode)
+        self._save_state(romanize=mode)
+        self._refresh_tray()
+        log.info("romanize → %s", mode)
+
+    @property
+    def english_variant(self) -> str:
+        return str((self.cfg.get("locale") or {}).get("english_variant", "en-US"))
+
+    @property
+    def romanize_mode(self) -> str:
+        return str((self.cfg.get("locale") or {}).get("romanize", "never"))
+
     # -- start at login ------------------------------------------------------
 
     @property
@@ -544,62 +621,33 @@ class MyWhisperApp:
 
     # -- personal dictionary (words, replacements, snippets) -----------------
 
-    _DICT_TEMPLATE = """\
-# Svara's personal dictionary — YOUR words. Reload from the tray after editing.
-# NOTE: Svara rewrites this file for quick-adds; hand-written comments here
-# may not survive. Long-form notes belong in config.yaml.
-words: []                   # names/jargon to recognize better, e.g. [Svara, Vasudev]
-replacements: {}            # exact fixes, e.g. { "swara": "Svara", "get hub": "GitHub" }
-snippets: {}                # say the trigger, type the block, e.g.
-                            #   "my email": "you@example.com"
-spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newline
-"""
-
     def edit_dictionary(self):
-        """Open dictionary.yaml in the user's editor (seeded with a template
-        on first use)."""
-        from .paths import dictionary_path
-        path = dictionary_path()
+        """Open dictionary.yaml in the user's editor (seeded on first use).
+        The table editor (tray ▸ Dictionary ▸ Edit words…) is the friendlier
+        route; this stays for people who'd rather edit YAML."""
+        from .dictionary_io import seed_dictionary_file
         try:
-            if not path.is_file():
-                path.write_text(self._DICT_TEMPLATE, encoding="utf-8")
-        except OSError:
-            log.debug("could not seed dictionary template", exc_info=True)
-        try:
-            os.startfile(str(path))  # noqa: S606 — user-initiated
+            os.startfile(str(seed_dictionary_file()))  # noqa: S606 — user-initiated
         except OSError:
             log.exception("could not open dictionary.yaml")
 
     def add_dictionary_word(self, word: str):
         """Quick-add from the Svara window: one word/phrase → dictionary.yaml
         → live reload. The retention loop that makes Svara learn your words."""
+        from .dictionary_io import load_dictionary, save_dictionary
+
         word = (word or "").strip().strip(",")
         if not word:
             return
-        import yaml
-
-        from .paths import dictionary_path
-        path = dictionary_path()
-        data = {}
-        try:
-            if path.is_file():
-                data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            if not isinstance(data, dict):
-                data = {}
-        except (OSError, yaml.YAMLError):
-            data = {}
+        data = load_dictionary()
         words = list(data.get("words") or [])
         if word.lower() in (str(w).lower() for w in words):
             self._notify(f"'{word}' is already in your dictionary.")
             return
         words.append(word)
         data["words"] = words
-        try:
-            path.write_text(
-                yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-                encoding="utf-8")
-        except OSError:
-            log.exception("could not write dictionary.yaml")
+        if not save_dictionary(data):
+            self._notify("Couldn't save the dictionary — see logs/mywhisper.log")
             return
         self.reload_dictionary(quiet=True)
         self._notify(f"Added '{word}' — Svara will recognize it from now on.")
@@ -696,23 +744,30 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
             return
         self._cap_warned = False
         # Context snapshot: which app gets this dictation (per-app rules,
-        # history), and its window title's proper nouns → recognition boost.
-        ctx_cfg = self.cfg.get("context") or {}
-        self._active_app, self._active_title = ("", "")
-        if ctx_cfg.get("enabled", True):
-            self._active_app, self._active_title = appcontext.foreground()
-            if ctx_cfg.get("title_hotwords", True):
-                words = appcontext.title_hotwords(self._active_title)
-                self.transcriber.cfg["context_hotwords"] = (
-                    ", ".join(words) if words else None)
+        # injection strategy, locale), and its window title's proper nouns →
+        # recognition boost. Taken once, here, so the streamer and the worker
+        # both see the same target even if focus moves while we transcribe.
+        self._ctx, hotwords = self.context_provider.capture()
+        self._active_app, self._active_title = self._ctx.app, self._ctx.title
+        self.transcriber.cfg["context_hotwords"] = (
+            ", ".join(hotwords) if hotwords else None)
         self.recorder.start()
         self.overlay.show("listening")
         # No sound here by design — the pill's appearance is the "you're being
         # heard" cue; a tone on every single dictation start got old fast.
         if self.tray:
             self.tray.set_recording(True)
-        if self.cfg["streaming"]["mode"] in ("preview", "live"):
-            self._stream_ctx = {"typed_total": 0}
+        mode = self.cfg["streaming"]["mode"]
+        # A terminal must never receive a half-typed line it could submit, and
+        # an elevated window discards synthetic input entirely — both get one
+        # clean insertion at the end instead of live streaming.
+        if mode == "live" and not self.injector.streams_into(self._ctx):
+            mode = "preview"
+            log.info("live typing disabled for %s (%s) — text is inserted when "
+                     "you finish", self._ctx.app or "this window",
+                     "elevated" if self._ctx.is_elevated else "terminal")
+        if mode in ("preview", "live"):
+            self._stream_ctx = {"typed_total": 0, "mode": mode}
             threading.Thread(target=self._streamer, args=(self._stream_ctx,),
                              daemon=True, name="streamer").start()
         log.info("● recording…")
@@ -820,6 +875,13 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
 
     # -- background threads -----------------------------------------------------
 
+    def _committed_so_far(self) -> str:
+        """What the streamer has typed this utterance — the text semantic
+        endpointing judges. Empty when streaming is off, in which case
+        `should_finish` degrades to the plain silence timer."""
+        ctx = self._stream_ctx or {}
+        return " ".join(ctx.get("all_typed") or [])
+
     def _monitor(self):
         """Auto-stop on silence, max-duration cap, and mic health (always-on)."""
         rec_cfg = self.cfg["recording"]
@@ -834,6 +896,10 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
                 if now - last_health >= 3.0:
                     last_health = now
                     self.recorder.ensure_alive()
+                    # audio.device_policy: external_first moves to a headset or
+                    # dock mic the moment one appears — only while idle, never
+                    # mid-utterance.
+                    self.recorder.reevaluate_device()
                 continue
             if self.recorder.elapsed() > rec_cfg["max_seconds"]:
                 log.info("max duration reached — stopping")
@@ -851,9 +917,14 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
                 and auto["enabled"]
                 and not self.hotkey.locked
                 and self.recorder.speech_ms() >= auto["min_speech_ms"]
-                and self.recorder.silence_ms() >= auto["silence_ms"]
+                and should_finish(
+                    self._committed_so_far(),
+                    self.recorder.silence_ms(),
+                    auto["silence_ms"],
+                    max_silence_ms=float(auto.get("max_silence_ms", 0) or 0),
+                    semantic=bool(auto.get("semantic", False)))
             ):
-                log.info("silence detected — stopping")
+                log.info("end of utterance — stopping")
                 self.stop_recording()
 
     def _streamer(self, ctx: dict):
@@ -871,12 +942,24 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
         interval = scfg["interval_ms"] / 1000.0
         sr = self.recorder.sr
         min_samples = int(scfg["min_audio_s"] * sr)
-        live = scfg["mode"] == "live"
-        # Shared with the worker: the final pass MUST see the same window and
-        # committed words, so its hypothesis aligns 1:1 with what was typed.
+        # The mode the app resolved for THIS target, not the configured one —
+        # start_recording downgrades live→preview for terminals and elevated
+        # windows.
+        live = ctx.get("mode", scfg["mode"]) == "live"
+        # The commit/trim policy lives in streaming.py as a pure state machine,
+        # so the benchmark can replay exactly what the app does instead of
+        # approximating it. `t0` and `committed` are mirrored into ctx because
+        # the finalising worker decodes the SAME trimmed window — that is what
+        # keeps the stream/tail boundary from duplicating or dropping words.
+        state = StreamState(
+            policy=make_policy(scfg.get("commit_policy", "local_agreement"),
+                               hold_back=int(scfg.get("hold_back", 1)),
+                               confident_after=int(scfg.get("confident_after", 12))),
+            sr=sr,
+            max_window_s=float(scfg.get("max_window_s", 0) or 0))
+        context_words = int(scfg.get("context_prompt_words", 0) or 0)
         ctx.setdefault("t0", 0)          # samples trimmed (their words are typed)
         ctx.setdefault("committed", [])  # words typed since t0
-        last_words: list[str] = []
         while (self.recorder.recording and ctx is self._stream_ctx
                and not self._shutdown.is_set()):
             t_start = time.perf_counter()
@@ -887,81 +970,81 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
                 time.sleep(0.1)
                 continue
             audio = self.recorder.snapshot()
-            if audio is not None and len(audio) - ctx["t0"] >= min_samples:
+            if audio is not None and len(audio) - state.t0 >= min_samples:
                 try:
-                    window = audio[ctx["t0"]:] if live else audio[-20 * sr:]
-                    segs = self.transcriber.transcribe_partial(window)
+                    window = audio[state.t0:] if live else audio[-20 * sr:]
+                    # Optional rolling context: hand the decoder the words we
+                    # already typed, so a partial window is not decoded as if
+                    # the speaker had just started talking. Off by default —
+                    # it can also induce repetition, so it needs a --bench
+                    # number before it earns being on.
+                    prompt = None
+                    if context_words and state.committed:
+                        prompt = " ".join(state.committed[-context_words:])
+                    segs = self.transcriber.transcribe_partial(window,
+                                                               prompt=prompt)
                     if not (self.recorder.recording and ctx is self._stream_ctx):
                         break
-                    words = " ".join(t for t, _, _ in segs).split()
                     if not live:
-                        self.overlay.set_preview(" ".join(words))
-                    elif words:
-                        committed = ctx["committed"]
-                        agree = 0
-                        for a, b in zip(words, last_words):
-                            if a != b:
-                                break
-                            agree += 1
-                        if words == last_words:
-                            # hypothesis fully settled (you paused / stopped
-                            # talking) → release everything, incl. the last word
-                            stable = words
-                        else:
-                            stable = words[:max(agree - 1, 0)]  # hold back 1 word
-                        new = stable[len(committed):]
+                        self.overlay.set_preview(
+                            " ".join(t for t, _, _ in segs))
+                    else:
                         # While the hotkey (Alt!) is physically held, synthetic
-                        # keystrokes would arrive as Alt+char and get eaten by
-                        # the app — buffer instead; the release-finalization
-                        # types everything the moment the key comes up.
-                        if new and not self.hotkey.held:
-                            # loudness → CAPS on the way out; committed stays raw
-                            # so hypothesis alignment is never disturbed
+                        # keystrokes would arrive as Alt+char and be eaten by
+                        # the app — record the hypothesis but commit nothing;
+                        # the release-finalization types it all at once.
+                        step = state.step(segs, len(window),
+                                          can_type=not self.hotkey.held)
+                        if step.has_new:
+                            # loudness → CAPS on the way out; `committed` stays
+                            # raw so hypothesis alignment is never disturbed
                             flags = self._word_caps_flags(segs, window)
-                            styled = self._apply_caps(
-                                words, flags)[len(committed):len(stable)]
-                            self.injector.inject_stream(" ".join(styled) + " ")
-                            committed.extend(new)
+                            styled = self._apply_caps(step.words, flags)[
+                                step.commit_from:step.commit_to]
+                            self.injector.inject_stream(
+                                " ".join(styled) + " ", self._ctx)
                             ctx.setdefault("all_typed", []).extend(styled)
-                            ctx["typed_total"] += len(new)
-                            self.session_words += len(new)
-                        last_words = words
-                        # Trim whole segments whose words are all typed —
-                        # never the last (still-active) segment.
-                        win_dur = len(window) / sr
-                        cum, trim_sec = 0, 0.0
-                        for text, _start, end in segs[:-1]:
-                            wc = len(text.split())
-                            if cum + wc <= len(committed) and end < win_dur - 0.5:
-                                cum += wc
-                                trim_sec = end
-                            else:
-                                break
-                        if cum:
-                            ctx["t0"] += int(trim_sec * sr)
-                            ctx["committed"] = committed[cum:]
-                            last_words = last_words[cum:] if cum <= len(last_words) else []
+                            ctx["typed_total"] += len(styled)
+                            self.session_words += len(styled)
+                        ctx["t0"] = state.t0
+                        ctx["committed"] = state.committed
                 except Exception:  # noqa: BLE001
-                    log.debug("streaming pass failed", exc_info=True)
+                    # The first failure is loud: a streaming loop that fails
+                    # every pass types nothing at all, and at DEBUG that looks
+                    # exactly like "the user said nothing". Later ones drop to
+                    # DEBUG so a flaky pass can't spam the log 5×/second.
+                    if not ctx.get("stream_error_logged"):
+                        ctx["stream_error_logged"] = True
+                        log.warning("%s streaming pass failed — live typing may "
+                                    "produce nothing this utterance",
+                                    E_STT_STREAM, exc_info=True)
+                    else:
+                        log.debug("streaming pass failed", exc_info=True)
             time.sleep(max(0.05, interval - (time.perf_counter() - t_start)))
-
-    def _strip_chat_period(self, text: str) -> str:
-        """Chat apps read a trailing period as passive-aggressive — drop it
-        when the focused app is a messenger (Wispr-parity per-app rule)."""
-        ctx = self.cfg.get("context") or {}
-        if not ctx.get("chat_no_period", True) or not self._active_app:
-            return text
-        chat = {a.lower() for a in (ctx.get("chat_apps") or [])}
-        if self._active_app not in chat:
-            return text
-        t = text.rstrip()
-        if t.endswith(".") and not t.endswith(".."):
-            return t[:-1]
-        return text
 
     def _record_history(self, text: str):
         self.history.record(text, app=self._active_app)
         self.recorder.discard_recovery()  # typed successfully — crash file obsolete
+        # Watch for the user correcting what we typed (opt-in, suggest-only).
+        self.auto_learner.watch(text)
+
+    def _auto_transform(self, text: str) -> str:
+        """`transforms.auto_after_dictation` — run a slot over every finished
+        dictation. Silent no-op when no slot is set or no LLM is reachable;
+        this runs on the hot path and must never toast or block."""
+        slot = self.transformer.registry.auto_slot()
+        if slot is None:
+            return text
+        try:
+            out = self.transformer.apply_to_text(text, slot)
+        except Exception:  # noqa: BLE001
+            log.debug("auto-transform failed — using the raw dictation",
+                      exc_info=True)
+            return text
+        if out:
+            log.info("auto-transform %r applied (%s)", slot.name, shape(out))
+            return out
+        return text
 
     def _worker(self):
         """Transcribe → clean → inject, in arrival order."""
@@ -986,15 +1069,25 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
                     words = " ".join(t for t, _, _ in segs).split()
                     committed = (ctx or {}).get("committed", [])
                     flags = self._word_caps_flags(segs, window, update=True)
-                    remainder = self._apply_caps(words, flags)[len(committed):]
-                    tail = self._strip_chat_period(" ".join(remainder))
-                    n = self.injector.inject(tail) if tail else 0
+                    styled = self._apply_caps(words, flags)
+                    # Align by CONTENT, not by count. The final pass uses a
+                    # different beam than the streamer and occasionally
+                    # tokenises the boundary differently; slicing at
+                    # len(committed) then repeats or drops a word.
+                    remainder = align_remainder(committed, styled)
+                    # Only the tail goes through the pipeline: the prefix is
+                    # already on screen, and re-running locale/personal rules
+                    # over it would produce a second, differently-formatted
+                    # copy of text the user is already looking at.
+                    tail = self.cleanup.run(" ".join(remainder), ctx=self._ctx)
+                    n = self.injector.inject(tail, self._ctx) if tail else 0
                     self.session_words += len(remainder)
                     self.overlay.hide()
-                    all_typed = (ctx or {}).get("all_typed", []) + remainder
-                    self._record_history(" ".join(all_typed))
-                    log.info("✓ %.1fs audio → live-typed, +%d final chars in %.2fs",
-                             dur, n, t_stt)
+                    all_typed = " ".join(
+                        (ctx or {}).get("all_typed", []) + [tail]).strip()
+                    self._record_history(all_typed)
+                    log.info("✓ %.1fs audio → live-typed, +%d final chars "
+                             "in %.2fs", dur, n, t_stt)
                     continue
                 t0 = time.perf_counter()
                 segs = self.transcriber.transcribe(audio)
@@ -1009,23 +1102,23 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
                     (seg_text.upper() if loud else seg_text)
                     for (seg_text, _s, _e), loud in zip(segs, seg_flags))
                 t0 = time.perf_counter()
-                style = ((self.cfg.get("context") or {}).get("styles")
-                         or {}).get(self._active_app)
-                text = self.cleanup.run(text, style_hint=style)
-                text = self._strip_chat_period(text)
+                text = self.cleanup.run(text, ctx=self._ctx)
+                text = self._auto_transform(text)
                 t_clean = time.perf_counter() - t0
-                n = self.injector.inject(text)
+                n = self.injector.inject(text, self._ctx)
                 self.session_words += len(text.split())
                 self.overlay.hide()
                 self._record_history(text)
-                preview = text if len(text) <= 80 else text[:77] + "…"
+                # NEVER log the transcript itself — see redact.py. `redact()`
+                # yields a word/char shape unless the user explicitly turned on
+                # logging.debug_transcripts.
                 log.info(
                     "✓ %.1fs audio → %d chars in %.2fs stt + %.2fs cleanup | %s",
-                    dur, n, t_stt, t_clean, preview,
+                    dur, n, t_stt, t_clean, redact(text),
                 )
             except Exception:  # noqa: BLE001 — one bad utterance must not kill the app
                 self.overlay.hide()
-                log.exception("failed to process utterance")
+                log.exception("%s failed to process utterance", E_STT_DECODE)
 
     # -- lifecycle -------------------------------------------------------------------
 
@@ -1052,6 +1145,7 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
                     return
                 text = self.cleanup.run(text)
                 self.history.record(text, kind="recovered")
+                log.debug("recovered dictation (%s)", shape(text))
                 from .injector import _clipboard_set
                 _clipboard_set(text)
                 self._notify(f"Recovered your interrupted dictation "
@@ -1133,9 +1227,11 @@ spoken_punctuation: false   # true -> "period"/"comma"/"new line" type . , newli
         self.quickkeys.stop()
         if self.command_mode:
             self.command_mode.stop()
+        self.auto_learner.stop()
         self.recorder.close()
         self.overlay.stop()
         self.history.close()
+        self.scratchpad.close()
         if self.tray:
             self.tray.stop()
 

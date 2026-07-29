@@ -26,7 +26,9 @@ kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP = 0x0002
 KEYEVENTF_UNICODE = 0x0004
+KEYEVENTF_EXTENDEDKEY = 0x0001
 VK_RETURN, VK_TAB, VK_CONTROL, VK_V, VK_C = 0x0D, 0x09, 0x11, 0x56, 0x43
+VK_SHIFT, VK_INSERT = 0x10, 0x2D
 _MODIFIER_VKS = (0x10, 0x11, 0x12, 0x5B, 0x5C)  # shift, ctrl, alt, lwin, rwin
 
 ULONG_PTR = ctypes.c_size_t
@@ -195,6 +197,36 @@ def paste_text(text: str, restore: bool = True):
         threading.Thread(target=_restore, daemon=True).start()
 
 
+def paste_text_shift_insert(text: str, restore: bool = True):
+    """Clipboard + Shift+Insert instead of Ctrl+V.
+
+    Terminal emulators and some Electron editors bind Ctrl+V to something other
+    than paste — in a shell, Ctrl+V is the "quoted insert" readline verb, so a
+    dictation pasted with it lands as a literal control sequence rather than
+    text. Shift+Insert is the older, unclaimed paste binding that Windows
+    Terminal, conhost, Cursor, and most VTE-derived emulators still honour.
+
+    INSERT is an extended key: without KEYEVENTF_EXTENDEDKEY some apps read the
+    numpad's 0 instead.
+    """
+    old = _clipboard_get() if restore else None
+    if not _clipboard_set(text):
+        log.warning("clipboard set failed — falling back to direct typing")
+        type_text(text)
+        return
+    _send([
+        _key_event(vk=VK_SHIFT),
+        _key_event(vk=VK_INSERT, flags=KEYEVENTF_EXTENDEDKEY),
+        _key_event(vk=VK_INSERT, flags=KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP),
+        _key_event(vk=VK_SHIFT, flags=KEYEVENTF_KEYUP),
+    ])
+    if restore and old is not None:
+        def _restore():
+            time.sleep(0.5)
+            _clipboard_set(old)
+        threading.Thread(target=_restore, daemon=True).start()
+
+
 def copy_selection():
     """Send Ctrl+C to the focused window — used by transforms to read the
     current selection. Waits for the user's own chord to clear first so the
@@ -210,29 +242,15 @@ def copy_selection():
 
 # --- Public façade ---------------------------------------------------------------
 
-class TextInjector:
-    def __init__(self, inj_cfg: dict):
-        self.method = inj_cfg["method"]
-        self.append_space = bool(inj_cfg["append_space"])
-        self.restore_clipboard = bool(inj_cfg["restore_clipboard"])
+# `TextInjector` moved to `mywhisper.injection`, which picks a strategy per
+# target app (terminals need line-safe insertion, elevated windows discard
+# synthetic input entirely). Resolved lazily here so the old import path keeps
+# working without a circular import — `injection` builds on these primitives.
 
-    def inject(self, text: str) -> int:
-        if not text:
-            return 0
-        if self.append_space and not text.endswith((" ", "\n")):
-            text += " "
-        wait_modifiers_released()
-        if self.method == "paste":
-            paste_text(text, restore=self.restore_clipboard)
-        else:
-            type_text(text)
-        return len(text)
 
-    def inject_stream(self, text: str) -> int:
-        """Live-typing chunks: always direct typing, no trailing-space logic
-        (streaming deltas carry their own spacing), clipboard untouched."""
-        if not text:
-            return 0
-        wait_modifiers_released()
-        type_text(text)
-        return len(text)
+def __getattr__(name: str):
+    if name == "TextInjector":
+        from .injection import TextInjector
+
+        return TextInjector
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

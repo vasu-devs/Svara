@@ -35,7 +35,20 @@ datas += [("config.yaml", "."), ("assets/icon.ico", "assets"),
           ("assets/icon.png", "assets")]
 
 hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
-                  "mywhisper.setup_ui", "tkinter", "tkinter.ttk", "customtkinter"]
+                  "mywhisper.setup_ui", "tkinter", "tkinter.ttk", "customtkinter",
+                  # tkinter's dialog modules are imported inside functions and
+                  # are NOT submodules of `tkinter` — without these, Import CSV
+                  # and Rename note fail only in the packaged build.
+                  "tkinter.filedialog", "tkinter.simpledialog",
+                  # 0.5 sub-packages. Analysis finds them through app.py, but
+                  # naming them keeps a lazily-imported stage from being pruned.
+                  "mywhisper.pipeline", "mywhisper.injection",
+                  "mywhisper.context", "mywhisper.transforms",
+                  "mywhisper.asr", "mywhisper.asr.faster_whisper",
+                  "mywhisper.bench", "mywhisper.scratchpad",
+                  "mywhisper.dictionary_io", "mywhisper.autolearn",
+                  "mywhisper.audio_policy", "mywhisper.redact",
+                  "mywhisper.streaming", "mywhisper.endpoint"]
 
 a = Analysis(
     ["app_entry.py"],
