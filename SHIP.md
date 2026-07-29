@@ -1,5 +1,25 @@
 # Shipping MyWhisper
 
+## Pre-flight
+
+Run these before every release. Each one has caught something real.
+
+```bat
+.venv\Scripts\python.exe -m unittest discover -s tests -q   :: 373 tests, ~35s
+run.bat --bench                                             :: exit 0/2/3
+cd web && npm run build                                     :: the site compiles
+```
+
+- **The suite must be fully green**, including `test_redact` (no dictated text
+  reaches the log), `test_config_integrity` (config.yaml and DEFAULTS agree, the
+  three privacy gates default off) and `test_upgrade` (a v0.4 config still gets
+  every 0.5 feature).
+- **`--bench` exits `2`** on the CPU default today — that is the known latency
+  gap in [`BENCH.md`](BENCH.md), not a regression. Exit `3` means it measured
+  nothing and something is wrong.
+- **Bump `mywhisper/__init__.py`'s `__version__`.** The setup-done flag embeds
+  it, so a bump correctly re-runs first-run setup on the new binary.
+
 ## Build the release Svara.exe (what the site links to)
 
 ```bat
@@ -8,14 +28,46 @@ set MYWHISPER_ONEFILE=1
 .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean MyWhisper.spec
 ```
 
-Produces **`dist\Svara.exe`** (~107 MB): a single download-and-run exe with a
+Produces **`dist\Svara.exe`** (~108 MB): a single download-and-run exe with a
 branded splash screen. No CUDA bundled — if an NVIDIA GPU is present, the
 first-run setup downloads `cuda-runtime.zip` (~1.3 GB) from the GitHub release
-on demand. Upload with:
+on demand.
+
+Then **smoke-test the binary you are about to publish** — not the source tree:
 
 ```bat
-gh release upload v0.1.0 dist\Svara.exe --clobber
+cd dist && Svara.exe --portable --no-tray
+:: wait ~30s, then read dist\logs\mywhisper.log and Ctrl-C / kill it
 ```
+
+Look for `Model ready`, `Hotkey armed`, `quick shortcuts armed` and no
+`SVARA-` error codes. `--portable --no-tray` skips self-install and the setup
+window, so this leaves nothing behind (delete `dist\logs`, `dist\config*.yaml`
+and `dist\state.json` afterwards).
+
+## Publish
+
+**Rename to the version first.** Re-uploading to a URL that already exists —
+which `--clobber` does — is a caching landmine: browsers and CDN edges can keep
+serving the old binary from that URL indefinitely, so a user's "fresh download"
+is silently stale. A new version number is a genuinely new URL.
+
+```bat
+copy dist\Svara.exe dist\Svara-0.5.0.exe
+gh release upload v0.1.0 dist\Svara-0.5.0.exe
+```
+
+**Upload the asset BEFORE pushing.** The site's download button and the
+in-app auto-updater both start looking the moment the new code is live; if the
+asset is not there yet they 404 for real users.
+
+Then update `DOWNLOAD` in [`web/app/page.tsx`](web/app/page.tsx) to the new
+filename, push, and the Pages workflow redeploys the site.
+
+**The auto-updater** polls `releases/latest` and picks the highest-versioned
+`Svara-*.exe` asset. It downloads quietly and applies only when the user clicks
+"Restart to update" in the tray, carrying the setup-done flag so nobody is
+re-onboarded by an upgrade.
 
 ## Build the standalone folder app
 
