@@ -60,6 +60,17 @@ ACCENT_HOVER = "#e08a5e"
 BTN_TEXT = "#f7f2ea"     # cream text on an accent-filled button
 ERROR = "#b23b2e"
 
+# Proof-reader's inks, for the transform diff. Two marks on the same paper —
+# not "terminal red/green", which belongs to a dark editor and is what makes a
+# light window look like two designs stitched together.
+#
+# DIFF_DEL is a deeper sienna than ACCENT on purpose: ACCENT fills buttons, so
+# struck-through text in it would compete with them and lose legibility at
+# small sizes. Both inks are matched for weight (5.6:1 and 5.4:1 on CARD) so
+# neither additions nor deletions shout louder than the other.
+DIFF_DEL = "#a8341c"     # struck out
+DIFF_ADD = "#2f6b4f"     # written in
+
 
 def _asset(name: str) -> str | None:
     roots = [getattr(sys, "_MEIPASS", None),

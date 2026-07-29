@@ -133,8 +133,8 @@ subscription, no telemetry, and it works offline.
   design ("apply concise"). Slot 1 is **Prompt Engineer** — it turns a rambled
   thought into a structured prompt. Each slot can learn your voice from 1–5
   samples of your own writing. `Win+Alt+O` shows exactly what a transform
-  changed, additions and strikethrough deletions, in your current theme's
-  colours; set `transforms.preview: auto` and nothing lands until you accept it.
+  changed — inserted words in one ink, deleted words struck through in another;
+  set `transforms.preview: auto` and nothing lands until you accept it.
 - **Whisper mode & scratchpad.** 3× mic gain for speaking softly at 2 a.m., and
   a `Win+Alt+S` note window with tabs and a version log that tags every save as
   *typed*, *dictated* or *transform* — so a rewrite is always undoable.
@@ -360,9 +360,10 @@ transforms:
 ```
 
 Select text anywhere and press a slot's hotkey, or hold the command key and say
-"apply concise". `Win+Alt+O` shows what the last transform changed — additions
-in the theme's success colour, deletions struck through in its accent — and
-`preview: auto` gates every rewrite behind that view. Samples teach a slot your
+"apply concise". `Win+Alt+O` shows what the last transform changed — inserted
+words in green ink, deleted words struck through in red, both drawn from the
+Svara window palette so they stay readable on it — and `preview: auto` gates
+every rewrite behind that view. Samples teach a slot your
 voice; Svara enforces the word bounds and a total prompt budget, because five
 500-word samples on a local 3B model is a latency cliff.
 

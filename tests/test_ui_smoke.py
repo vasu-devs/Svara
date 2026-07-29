@@ -72,6 +72,29 @@ class _WindowCase(unittest.TestCase):
         self.addCleanup(lambda: win.winfo_exists() and win.destroy())
         return win
 
+    def assertButtonsVisible(self, win):
+        """Every button must be ON SCREEN, not merely in the widget tree.
+
+        The original version of these tests asserted buttons *existed*, which
+        they did — while `tk.Text`'s 24-line default request pushed the whole
+        footer past the bottom edge of two windows, leaving them unusable by
+        mouse. Existence is not visibility; geometry has to be checked.
+        """
+        win.update_idletasks()
+        win.update()
+        bottom = win.winfo_rooty() + win.winfo_height()
+        buttons = [w for w in self._children(win) if isinstance(w, tk.Button)]
+        self.assertTrue(buttons, "window has no buttons at all")
+        for b in buttons:
+            label = b.cget("text")
+            self.assertTrue(b.winfo_ismapped(), f"button {label!r} is not mapped")
+            self.assertGreater(b.winfo_height(), 1,
+                               f"button {label!r} has collapsed to zero height")
+            self.assertLessEqual(
+                b.winfo_rooty() + b.winfo_height(), bottom + 1,
+                f"button {label!r} is clipped below the bottom of the window — "
+                "it exists but the user cannot click it")
+
 
 class TestDiffWindow(_WindowCase):
     def test_builds_and_renders_both_sides_of_the_diff(self):
@@ -119,17 +142,46 @@ class TestDiffWindow(_WindowCase):
         self.assertIn("Close", labels)
         self.assertIn("Copy original", labels)
 
-    def test_colors_come_from_the_active_theme(self):
+    def test_its_buttons_are_actually_on_screen(self):
+        from mywhisper.howto_ui import _build_diff
+
+        _build_diff(self.root, self.app, before="a b c d e f g",
+                    after="a x c y e z g", decision={})
+        self.assertButtonsVisible(self._last_toplevel("_svara_diff"))
+
+    def test_diff_ink_is_readable_on_the_window_it_is_drawn_on(self):
+        # The bug this replaces: colours were taken from the overlay theme, so
+        # minimal-dark's mint landed on the cream card at 1.56:1 — invisible.
+        from mywhisper.howto_ui import _diff_colors
+        from mywhisper.setup_ui import CARD
+
+        def contrast(a, b):
+            def lum(h):
+                h = h.lstrip("#")
+                ch = [int(h[i:i + 2], 16) / 255 for i in (0, 2, 4)]
+                f = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+                     for c in ch]
+                return 0.2126 * f[0] + 0.7152 * f[1] + 0.0722 * f[2]
+            hi, lo = sorted((lum(a), lum(b)), reverse=True)
+            return (hi + 0.05) / (lo + 0.05)
+
+        add, delete = _diff_colors()
+        for name, colour in (("addition", add), ("deletion", delete)):
+            self.assertGreaterEqual(
+                contrast(colour, CARD), 4.5,
+                f"{name} ink {colour} fails WCAG AA on the card it sits on")
+        self.assertNotEqual(add, delete)
+
+    def test_diff_ink_does_not_follow_the_overlay_theme(self):
+        # The window is the cream card in every theme, so its ink must be too.
         from mywhisper.howto_ui import _diff_colors
         from mywhisper.themes import theme_names
 
+        first = _diff_colors()
         for name in theme_names():
             self.app.current_theme = name
-            add, delete = _diff_colors(self.app)
-            self.assertRegex(add, r"^#[0-9a-fA-F]{6}$", name)
-            self.assertRegex(delete, r"^#[0-9a-fA-F]{6}$", name)
-            self.assertNotEqual(add, delete,
-                                f"{name}: additions and deletions look alike")
+            self.assertEqual(_diff_colors(), first,
+                             f"{name} changed the diff ink on an unthemed window")
 
 
 class TestDictionaryWindow(_WindowCase):
@@ -179,6 +231,12 @@ class TestScratchpadWindow(_WindowCase):
         self.assertTrue(self.app.scratchpad.notes(), "no note was created")
         self.assertTrue([w for w in self._children(win)
                          if isinstance(w, tk.Text)])
+
+    def test_its_buttons_are_actually_on_screen(self):
+        from mywhisper.howto_ui import _toggle_scratchpad
+
+        _toggle_scratchpad(self.root, self.app)
+        self.assertButtonsVisible(self._last_toplevel("_svara_scratch"))
 
     def test_reopens_existing_notes_as_tabs(self):
         from mywhisper.howto_ui import _toggle_scratchpad

@@ -22,7 +22,8 @@ import logging
 import queue
 import threading
 
-from .setup_ui import ACCENT, BG, BTN_TEXT, CARD, CARD_ON, FG, SUB
+from .setup_ui import (ACCENT, BG, BTN_TEXT, CARD, CARD_ON, DIFF_ADD, DIFF_DEL,
+                       FG, SUB)
 
 log = logging.getLogger(__name__)
 
@@ -242,22 +243,21 @@ def _build_history(root, app):
     refresh()
 
 
-def _diff_colors(app) -> tuple[str, str]:
-    """(addition, deletion) drawn from the ACTIVE theme.
+def _diff_colors(app=None) -> tuple[str, str]:
+    """(addition, deletion) — from the WINDOW's palette, not the overlay theme.
 
-    Every Svara theme already defines `done` (success) and `dot` (the recording
-    dot) — semantically "good" and "attention", and legible against that
-    theme's own background by construction. Borrowing them means the diff looks
-    native in Matrix and Vaporwave without a per-theme colour table, and a
-    user's `theme_overrides` carry through for free.
+    This originally pulled each theme's `done` and `dot` colours, on the theory
+    that borrowing the theme's own semantic colours would make the diff look
+    native everywhere. It does the opposite. Those colours are chosen to sit on
+    a theme's background — `minimal-dark`'s mint `#58d5a2` is tuned for
+    `#101216` — and this window is not themed at all; it is the same warm cream
+    card as History and Setup. Mint on cream measures **1.56:1**, which is not
+    low contrast, it is invisible. The recording red managed 2.54:1.
+
+    So the diff uses two inks from the palette the window actually belongs to
+    (5.4:1 and 5.6:1 on CARD, both AA). One page, one set of inks.
     """
-    try:
-        from .themes import get_theme
-        theme = get_theme(app.current_theme,
-                          (app.cfg.get("ui") or {}).get("theme_overrides"))
-        return theme.get("done", "#58d5a2"), theme.get("dot", "#ff5f56")
-    except Exception:  # noqa: BLE001
-        return "#58d5a2", "#ff5f56"
+    return DIFF_ADD, DIFF_DEL
 
 
 def _build_diff(root, app, before="", after="", label="Transform",
@@ -294,10 +294,17 @@ def _build_diff(root, app, before="", after="", label="Transform",
     tk.Label(head, text=f"−{removed}  ", bg=BG, fg=del_fg,
              font=("Segoe UI Semibold", 10)).pack(side="right")
 
+    # tk.Text asks for 24 lines by default — more than this window is tall —
+    # so packing it before the footer let it claim every pixel and push the
+    # Apply / Keep original buttons clean off the bottom edge. The window
+    # rendered fine and was unusable by mouse.
+    #
+    # Two belts: an explicit height so the request can never exceed the window,
+    # and the footer packed to the bottom FIRST so its space is reserved
+    # whatever the body asks for.
     body = tk.Text(win, bg=CARD, fg=FG, relief="flat", bd=0, wrap="word",
-                   font=("Segoe UI", 11), padx=14, pady=12,
+                   font=("Segoe UI", 11), padx=14, pady=12, height=8,
                    insertbackground=ACCENT, cursor="arrow")
-    body.pack(fill="both", expand=True, padx=18, pady=(0, 10))
     body.tag_configure(INSERT, foreground=add_fg)
     body.tag_configure(DELETE, foreground=del_fg, overstrike=True)
     body.tag_configure(EQUAL, foreground=FG)
@@ -322,7 +329,8 @@ def _build_diff(root, app, before="", after="", label="Transform",
     reject_label = "Copy original" if reviewing else "Keep original"
 
     foot = tk.Frame(win, bg=BG)
-    foot.pack(fill="x", padx=18, pady=(0, 16))
+    foot.pack(side="bottom", fill="x", padx=18, pady=(0, 16))
+    body.pack(fill="both", expand=True, padx=18, pady=(0, 10))
     tk.Label(foot, text=hint, bg=BG, fg=SUB,
              font=("Segoe UI", 9)).pack(side="left")
     tk.Button(foot, text=reject_label, bg=CARD, fg=FG, bd=0, padx=16,
@@ -548,6 +556,12 @@ def _toggle_scratchpad(root, app):
     style.map("Scratch.TNotebook.Tab", background=[("selected", CARD_ON)],
               foreground=[("selected", ACCENT)])
 
+    # Footer first, bottom-anchored: the note editor is a tk.Text asking for 24
+    # lines, which otherwise swallows the window and clips New note / History /
+    # Rename / Delete off the bottom.
+    foot = tk.Frame(win, bg=BG)
+    foot.pack(side="bottom", fill="x", padx=14, pady=(0, 14))
+
     tabs = ttk.Notebook(win, style="Scratch.TNotebook")
     tabs.pack(fill="both", expand=True, padx=14, pady=(14, 6))
 
@@ -573,7 +587,7 @@ def _toggle_scratchpad(root, app):
         frame = tk.Frame(tabs, bg=BG)
         widget = tk.Text(frame, bg=CARD, fg=FG, insertbackground=ACCENT,
                          relief="flat", font=("Segoe UI", 11), wrap="word",
-                         padx=12, pady=10, undo=True)
+                         padx=12, pady=10, undo=True, height=10)
         widget.pack(fill="both", expand=True)
         widget.insert("1.0", store.body(note_id))
         widget.bind("<KeyRelease>", schedule_save)
@@ -650,8 +664,6 @@ def _toggle_scratchpad(root, app):
 
         box.bind("<Double-Button-1>", restore)
 
-    foot = tk.Frame(win, bg=BG)
-    foot.pack(fill="x", padx=14, pady=(0, 14))
     for label, command in (("History…", show_versions), ("Rename", rename_note),
                            ("Delete", delete_note)):
         tk.Button(foot, text=label, bg=CARD, fg=FG, bd=0, padx=12, pady=5,

@@ -5,12 +5,17 @@ Doing that blind is a bad trade: the model is fast and private, but it is also
 small, and it will occasionally drop a clause you needed. Showing the change
 first turns "hope it worked" into a decision.
 
-The pure diff lives here so it can be tested without a display. The window is
-built from the *active theme's own palette* — additions use `done` (the success
-colour every theme already defines) and deletions use `dot` (the recording
-colour, red in every theme). Hardcoded red/green would be illegible in Matrix
-and Vaporwave; borrowing the theme's own semantic colours means the preview
-looks native in all eight without a per-theme table.
+The pure diff lives here so it can be tested without a display; the window is
+in `howto_ui`.
+
+A note on its colours, because the obvious idea is wrong. The first version
+took each overlay theme's `done` and `dot` — its own semantic "good" and
+"attention" — reasoning that the preview would then look native in all eight
+themes. It doesn't: those colours are tuned for the *theme's* background, and
+this window is not themed at all. It is the same warm cream card as History and
+Setup. `minimal-dark`'s mint measured 1.56:1 on that cream — invisible, not
+merely low contrast. The inks now come from the window's own palette
+(`setup_ui.DIFF_ADD` / `DIFF_DEL`, both AA), and a test enforces it.
 """
 
 import difflib
