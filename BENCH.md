@@ -73,6 +73,46 @@ different property and the one users feel.
 
 ---
 
+## Did v0.5 make anything faster? Unknown — and here is why
+
+There is **no v0.4 baseline**. `--bench` did not exist before v0.5, so no
+honest before/after latency number can be produced. (Do not read the earlier
+1127 ms → 913 ms p95 as a win either: most of that was fixing the harness to
+model window trimming, not the app getting quicker.)
+
+So the 0.5 changes were A/B'd against each other instead, back-to-back in one
+process, `base.en` CPU, 2 passes over the same 3-clip corpus:
+
+| configuration | TTFW | p50 | p95 | final | RTF | WER |
+|---|---:|---:|---:|---:|---:|---:|
+| 0.4-equivalent (no batching, no cap) | 2217 | 2526 | 3124 | 2580 | 0.354 | 8.33% |
+| + batched final pass | 2397 | 2520 | 2834 | 2490 | 0.369 | 8.33% |
+| + window cap 30 s *(shipped)* | 1566 | 2313 | 2845 | 974 | 0.243 | 8.33% |
+| + context prompt (8 words) | 2204 | 2230 | 3102 | 2619 | 0.386 | 8.33% |
+| adaptive commit policy | 2040 | 2249 | 2656 | 2293 | 0.375 | 8.33% |
+
+**The latency columns are noise.** TTFW decodes a fixed 0.35 s window; none of
+these settings can possibly affect it, and it still ranged 1566–2397 ms — a 53%
+spread. Isolated runs of the identical code and corpus earlier the same day
+measured 754 ms. Five configurations run sequentially heat the CPU and fight
+whatever else is on the machine, and that drift is larger than every effect
+being measured.
+
+Which is the finding: **on this hardware the harness cannot resolve differences
+below roughly ±50% on CPU.** Quoting any of those deltas as an improvement
+would be inventing a result. Treat CPU latency here as an order of magnitude,
+not a measurement, and do comparative work on GPU or on a quiet machine with
+many alternating repeats.
+
+**The WER column is clean**, because decoding is deterministic — same audio,
+same settings, same answer. It says two useful things:
+
+- **Batched inference costs no accuracy** (8.33% either way), so it is a safe
+  default.
+- **The rolling context prompt earns nothing** on this corpus — identical WER
+  for a longer prompt on every pass. `streaming.context_prompt_words` stays at
+  `0`, which is what "measure before turning it on" was for.
+
 ## Method
 
 - **TTFW** decodes the first `streaming.min_audio_s` through the same
