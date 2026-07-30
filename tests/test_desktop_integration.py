@@ -145,7 +145,7 @@ class TestStartsAfterAPowerOff(unittest.TestCase):
     key. These lock the default ON: a user who never opens Settings still gets
     Svara back after a reboot, and only an explicit opt-out stops it.
 
-    set_autostart is mocked throughout - the real one writes HKCU\Run, and a
+    set_autostart is mocked throughout - the real one writes HKCU\\Run, and a
     test suite has no business touching the machine's real startup entries."""
 
     def setUp(self):

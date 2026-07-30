@@ -127,7 +127,77 @@ class TestCiDependencies(unittest.TestCase):
     # Third-party modules the pure test suite reaches at import time. Anything
     # added here must also appear in the workflow's pip install line.
     REQUIRED = {"yaml": "pyyaml", "pynput": "pynput", "numpy": "numpy",
-                "sounddevice": "sounddevice", "tqdm": "tqdm"}
+                "sounddevice": "sounddevice", "tqdm": "tqdm",
+                "comtypes": "comtypes"}
+
+    # Imported behind try/except and genuinely optional: the app degrades on
+    # purpose without them and the tests mock them, so CI must NOT install
+    # them (they are large, and installing them would hide the degrade paths).
+    OPTIONAL = {"faster_whisper", "torch", "openai", "ollama", "ctranslate2",
+                "customtkinter", "pystray", "PIL", "win32api", "win32con",
+                "win32gui", "win32process", "pytest", "setuptools",
+                # CUDA detection; absent on a CPU-only machine by definition.
+                "nvidia",
+                # Injected by PyInstaller into the frozen exe only. It cannot
+                # be pip-installed, and importing it from source must fail.
+                "pyi_splash",
+                # Arrives with faster-whisper and does the first-run model
+                # download. Declared in requirements.txt, but CI never needs
+                # it: the download tests mock the whole thing.
+                "huggingface_hub"}
+
+    def _imports_anywhere(self) -> dict[str, set[str]]:
+        """Every module imported under mywhisper/ and tests/, at ANY
+        indentation. The previous version of this guard only knew about a
+        hand-written list, which is precisely how comtypes stayed undeclared
+        while three separate features depended on it."""
+        import ast
+        found: dict[str, set[str]] = {}
+        for folder in ("mywhisper", "tests"):
+            for path in (ROOT / folder).rglob("*.py"):
+                try:
+                    tree = ast.parse(path.read_text(encoding="utf-8", errors="ignore"))
+                except SyntaxError:
+                    continue
+                for node in ast.walk(tree):   # walk == nested imports too
+                    if isinstance(node, ast.Import):
+                        names = [a.name for a in node.names]
+                    elif isinstance(node, ast.ImportFrom):
+                        names = [node.module] if node.module and not node.level else []
+                    else:
+                        continue
+                    for name in names:
+                        root = name.split(".")[0]
+                        found.setdefault(root, set()).add(
+                            str(path.relative_to(ROOT)))
+        return found
+
+    def test_no_third_party_import_is_undeclared(self):
+        """A new import must be consciously classified as required or
+        optional. Silence is what let comtypes ship undeclared: every call
+        site caught the ImportError, so the app just quietly lost the Start
+        Menu shortcut instead of failing."""
+        local = {"mywhisper", "tests"}
+        known = set(self.REQUIRED) | self.OPTIONAL | local
+        unclassified = {
+            mod: sorted(files)[:3]
+            for mod, files in self._imports_anywhere().items()
+            if mod not in known and mod not in sys.stdlib_module_names
+        }
+        self.assertFalse(
+            unclassified,
+            f"undeclared third-party imports: {unclassified}. Add each to "
+            "REQUIRED (and to requirements.txt + tests.yml) if the feature "
+            "must work, or to OPTIONAL if it degrades on purpose.")
+
+    def test_required_packages_are_in_requirements(self):
+        # CI installing it is not enough: users install from requirements.txt.
+        text = (ROOT / "requirements.txt").read_text(encoding="utf-8").lower()
+        missing = [p for p in self.REQUIRED.values() if p.lower() not in text]
+        self.assertFalse(
+            missing,
+            f"{missing} missing from requirements.txt — CI would pass while a "
+            "fresh user install silently lost the feature")
 
     def test_workflow_installs_everything_the_suite_imports(self):
         if not self.WORKFLOW.is_file():

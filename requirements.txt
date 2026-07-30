@@ -23,3 +23,16 @@ Pillow>=10.0
 
 # Modern first-run setup window (rounded dark UI; falls back to plain Tk)
 customtkinter>=5.2
+
+# Windows shell/COM: the Start Menu shortcut (so Search finds Svara), caret
+# tracking for the pill, and part of the overlay all go through WScript.Shell
+# and UIAutomation. Every call site wraps it in try/except, so a missing
+# comtypes does not crash — it silently removes those features instead, which
+# is why it went undeclared for so long.
+comtypes>=1.2; sys_platform == "win32"
+
+# First-run model download: the progress bar and the Hugging Face fetch. Both
+# arrive with faster-whisper today, but relying on a transitive dependency for
+# the very first screen a user sees is how it breaks silently on an upgrade.
+tqdm>=4.66
+huggingface_hub>=0.20
