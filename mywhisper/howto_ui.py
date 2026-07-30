@@ -157,6 +157,40 @@ def _ui_main():
     root.mainloop()
 
 
+def _wrap_to_own_width(label, pad: int = 10) -> None:
+    """Keep `label`'s wraplength equal to the width pack actually gave it.
+
+    Every fixed wraplength in this file is a guess about how wide the window
+    will be, and the guess is wrong whenever the window is clamped to a small
+    screen or the display's DPI differs from the author's.
+
+    The label MUST be packed with `fill="x", expand=True` so that pack hands it
+    the leftover space in its row; its width then comes from the geometry
+    manager rather than from its own text, which is what stops this feeding
+    back on itself. Deriving the room from the row's width and the label's
+    x-offset looks equivalent and is not: the first <Configure> arrives before
+    the label has been positioned, so winfo_x() reads 0 and the label is told
+    it may use the entire row.
+    """
+    def _fit(event):
+        avail = event.width - pad
+        if avail < 60:
+            return  # mid-layout; a nonsense value here would flicker
+        # str() first: cget can hand back a Tcl object rather than a Python
+        # string, and int() on that raises TypeError. An earlier version wrote
+        # int(label.cget(...)) inside a bare except and so did nothing at all,
+        # silently — the wraplength stayed 0 and the text stayed cut, with no
+        # error anywhere to explain why the fix "did not work".
+        try:
+            current = int(str(label.cget("wraplength")) or 0)
+        except (TypeError, ValueError):
+            current = 0
+        if abs(current - avail) > 8:
+            label.configure(wraplength=avail)
+
+    label.bind("<Configure>", _fit, add="+")
+
+
 def _style_toplevel(win, title: str, w: int, h: int):
     import tkinter as tk  # noqa: F401
     win.title(title)
@@ -759,11 +793,16 @@ def _build(root, app, first_run=False):
     tk.Label(root, text="You're all set ✓" if first_run else "Svara is running",
              bg=BG, fg=FG, font=("Segoe UI Semibold", 20), anchor="w"
              ).pack(fill="x", padx=26)
-    tk.Label(root, text=("Try it right here — your words stream in live while "
-                         "the pill hovers on screen." if first_run else
-                         "It types wherever your cursor is — in any app."),
-             bg=BG, fg=SUB, font=("Segoe UI", 11), anchor="w"
-             ).pack(fill="x", padx=26, pady=(0, 10))
+    # No wraplength at all here originally, so this never wrapped — it just ran
+    # off the edge. The first-run copy is the longer of the two and was the one
+    # that lost its ending.
+    subtitle = tk.Label(root, text=(
+        "Try it right here — your words stream in live while "
+        "the pill hovers on screen." if first_run else
+        "It types wherever your cursor is — in any app."),
+        bg=BG, fg=SUB, font=("Segoe UI", 11), anchor="w", justify="left")
+    subtitle.pack(fill="x", padx=26, pady=(0, 10))
+    _wrap_to_own_width(subtitle)
 
     steps = tk.Frame(root, bg=CARD)
     steps.pack(fill="x", padx=26)
@@ -816,8 +855,13 @@ def _build(root, app, first_run=False):
                               activeforeground=ACCENT, bd=0)
         opt.pack(side="left", padx=(10, 0))
         if hint:
-            tk.Label(row, text=hint, bg=BG, fg=SUB,
-                     font=("Segoe UI", 9)).pack(side="left", padx=(10, 0))
+            # Last in its row and behind a label and a dropdown, so how much
+            # room it has depends on the window width — fixing it here covers
+            # every settings row at once rather than one hint at a time.
+            hint_lbl = tk.Label(row, text=hint, bg=BG, fg=SUB,
+                                font=("Segoe UI", 9), justify="left")
+            hint_lbl.pack(side="left", padx=(10, 0), fill="x", expand=True)
+            _wrap_to_own_width(hint_lbl)
         return var
 
     from .setup_ui import _CPU_OK, MODELS
@@ -921,9 +965,18 @@ def _build(root, app, first_run=False):
               ).pack(side="left", padx=(6, 0))
     # Shortened and clipped-proof: the old copy ran off the right edge, so the
     # user saw "a name Svara mishear" and nothing else.
-    tk.Label(row, text="a name it mishears?", bg=BG, fg=SUB,
-             font=("Segoe UI", 9), wraplength=_s(170),
-             justify="left").pack(side="left", padx=(10, 0))
+    hint = tk.Label(row, text="a name it mishears?", bg=BG, fg=SUB,
+                    font=("Segoe UI", 9), wraplength=_s(170),
+                    justify="left")
+    # expand=True is load-bearing, not cosmetic: it is what makes pack give
+    # this label the row's leftover width, which _wrap_to_own_width then wraps
+    # the text to. This one is last in a row that already holds a label, an
+    # entry and a button, so what remains depends on how wide the window ended
+    # up — and on a small screen the window is clamped narrower than the design
+    # size, at which point any fixed wraplength is a guess. Scaling the
+    # constant was still a guess, just wrong less often.
+    hint.pack(side="left", padx=(10, 0), fill="x", expand=True)
+    _wrap_to_own_width(hint)
 
     # --- start with Windows: THE reliability setting. Svara only feels
     # dependable if the hotkey works after every reboot without the user
@@ -965,15 +1018,23 @@ def _build(root, app, first_run=False):
     foot.pack(side="bottom", fill="x", padx=26, pady=(10, 16))
     box.pack(fill="both", expand=True, padx=26)
     from . import __version__
-    tk.Label(foot, text=f"Svara v{__version__}  ·  {app.model_label}  ·  "
-                        "more in the tray icon (near the clock)",
-             bg=BG, fg=SUB, font=("Segoe UI", 9), anchor="w",
-             wraplength=W - _s(150), justify="left").pack(side="left", fill="x",
-                                                      expand=True)
+    # The BUTTON is packed first, deliberately. pack allocates in call order,
+    # so an expand=True label placed ahead of it claims the whole row and the
+    # button is then squeezed into whatever is left — 5px short of its own
+    # label at ordinary 100% DPI, which is to say "Finish  →" arrived clipped
+    # on the welcome screen for essentially every user. Reserving the fixed-
+    # size control first and letting the flexible one absorb the remainder is
+    # the order that cannot do that.
     tk.Button(foot, text="Finish  →" if first_run else "Close",
               bg=ACCENT, fg=BTN_TEXT,
               font=("Segoe UI Semibold", 10), bd=0, padx=22, pady=7,
               cursor="hand2", command=root.withdraw).pack(side="right")
+    version = tk.Label(foot, text=f"Svara v{__version__}  ·  {app.model_label}"
+                                  "  ·  more in the tray icon (near the clock)",
+                       bg=BG, fg=SUB, font=("Segoe UI", 9), anchor="w",
+                       wraplength=W - _s(150), justify="left")
+    version.pack(side="left", fill="x", expand=True)
+    _wrap_to_own_width(version)
 
     box.focus_set()
     root.protocol("WM_DELETE_WINDOW", root.withdraw)  # hide, not destroy — reused next time

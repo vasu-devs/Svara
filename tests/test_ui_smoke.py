@@ -373,14 +373,25 @@ class TestHowToWindowFitsItsText(_WindowCase):
     high-DPI display without needing one.
     """
 
-    def _build_at(self, scaling: float, first_run: bool = False):
+    def _build_at(self, scaling: float, first_run: bool = False,
+                  screen_w: int | None = None):
         from mywhisper import howto_ui
 
         win = tk.Toplevel(self.root)
         self.addCleanup(lambda: win.winfo_exists() and win.destroy())
         win.tk.call("tk", "scaling", scaling)
+        if screen_w is not None:
+            # The window clamps itself to the display it is on, so the screen
+            # width decides how much room the layout really gets. A dev machine
+            # is usually wide enough to hide a too-narrow layout; CI is not.
+            win.winfo_screenwidth = lambda: screen_w
         # _build owns the window it is given: it clears and lays out children.
         howto_ui._build(win, self.app, first_run)
+        win.update_idletasks()
+        win.update()
+        # Labels that size themselves to the room they were given do it once
+        # layout has settled, via after_idle. Without draining that the test
+        # measures a half-laid-out window.
         win.update_idletasks()
         win.update()
         return win
@@ -434,3 +445,52 @@ class TestHowToWindowFitsItsText(_WindowCase):
                          if isinstance(w, tk.Label))
         self.assertIn("cancel", texts.lower(),
                       "the how-to no longer tells the user how to cancel")
+
+    def test_fits_on_a_small_screen_at_200_percent(self):
+        """The combination that caught this in CI and not locally: high DPI on
+        a modest display. The window is clamped narrower than its design width,
+        so every hard-coded wraplength in it becomes a wrong guess at once."""
+        self.assertNothingClipped(self._build_at(2.667, screen_w=1024), 2.667)
+
+    def test_fits_on_a_narrow_laptop_screen(self):
+        self.assertNothingClipped(self._build_at(2.0, screen_w=1280), 2.0)
+
+    # Screen widths x DPI scalings that real Windows machines actually report.
+    # 800px-wide panels exist only at 100% DPI; 4K exists mostly at 150-200%.
+    REAL_SCREENS = (1024, 1280, 1366, 1600, 1920, 2560, 3840)
+    REAL_SCALINGS = (1.333, 1.5, 2.0, 2.4, 2.667, 3.0)
+
+    def test_no_realistic_display_truncates_the_window(self):
+        """A matrix, because the single-configuration tests above passed while
+        eleven combinations were broken - including the "Finish" button on the
+        welcome screen, which was clipped at ORDINARY 100% DPI on every screen
+        width. One layout bug per DPI is not the shape of this problem; the
+        window has several independently-sized rows and each fails on its own
+        schedule.
+
+        Not swept: widths below 1024 combined with 200%+ scaling. A 656px-wide
+        window rendering fonts at 2.4x cannot fit this content, and no display
+        reports that pairing - an 800px panel is a 100% DPI device.
+        """
+        broken = []
+        for screen_w in self.REAL_SCREENS:
+            for scaling in self.REAL_SCALINGS:
+                for first_run in (False, True):
+                    win = self._build_at(scaling, first_run, screen_w)
+                    for w in self._children(win):
+                        if not isinstance(w, (tk.Label, tk.Button)):
+                            continue
+                        if not w.winfo_ismapped() or not str(w.cget("text")).strip():
+                            continue
+                        cut = w.winfo_reqwidth() - w.winfo_width()
+                        if cut > 1:
+                            broken.append(
+                                f"{screen_w}px @ {scaling}x"
+                                f"{' welcome' if first_run else ''}: "
+                                f"{str(w.cget('text'))[:28]!r} cut {cut}px")
+                    win.destroy()
+        self.assertFalse(
+            broken,
+            f"{len(broken)} clipped across "
+            f"{len(self.REAL_SCREENS) * len(self.REAL_SCALINGS) * 2} "
+            "display configurations:\n  " + "\n  ".join(broken[:8]))
