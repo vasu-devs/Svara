@@ -31,9 +31,23 @@
 >   p95 target and costs +43% WER. Dictation you have to correct is not faster.
 >
 > So §7 3.1 is no longer "evaluate candidates and see" — it is the only
-> remaining lever, and the criterion is specific: **an engine that does not pad
-> to a fixed window.** Moonshine is first to try because that is its design
-> premise. Numbers and reasoning in [`BENCH.md`](BENCH.md).
+> remaining lever **on CPU**, and the criterion is specific: **an engine that
+> does not pad to a fixed window.** Moonshine is first to try because that is
+> its design premise. Numbers and reasoning in [`BENCH.md`](BENCH.md).
+>
+> **Amended v0.5.3 — the GPU path was measured, and it changes the scope of
+> the above, not its substance.** On an RTX 4060, `base.en` reaches first word
+> in **36 ms** against 487 ms on CPU, and `distil-large-v3.5` manages **242 ms
+> while transcribing the whole corpus exactly**. Both are inside the §2 budget,
+> which no CPU configuration has ever met.
+>
+> The original conclusion was written from CPU measurements and stated without
+> that qualifier, which made it sound like a property of the architecture
+> rather than of where it runs. The 30 s mel padding is still real and still
+> the reason CPU cannot get there. But a new engine is **not** a prerequisite
+> for the latency target — it is what the *CPU default* needs, which matters
+> because the CPU default is what the app installs first and what most users
+> will run.
 
 ---
 

@@ -693,11 +693,29 @@ def _build(root, app, first_run=False):
 
     root.title("Svara — You're all set" if first_run else "Svara")
     root.configure(bg=BG)
-    W = 660
+    # Tk sizes windows in PIXELS but renders fonts in POINTS, and points grow
+    # with the display's DPI. A hard-coded 660px window therefore stayed the
+    # same physical width while every string inside it got larger, so on a
+    # 150% display two lines were truncated and on a 200% display five were —
+    # including the one that says how to cancel. `tk scaling` is the same
+    # number Tk itself uses for the point-to-pixel conversion, so deriving the
+    # window from it keeps the two in step. 1.333 (96dpi) is the 100% baseline.
+    try:
+        scale = max(1.0, float(root.tk.call("tk", "scaling")) * 72.0 / 96.0)
+    except Exception:  # noqa: BLE001 — an odd Tk build must not stop the window
+        scale = 1.0
+
+    def _s(px: int) -> int:
+        """A design pixel, in whatever this display actually uses."""
+        return int(round(px * scale))
+
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    H = min(760, sh - 90)
+    # Never wider or taller than the screen it has to fit on: at 200% on a
+    # small panel the scaled size would otherwise exceed the display.
+    W = min(_s(660), sw - _s(60))
+    H = min(_s(760), sh - 90)
     root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
-    root.minsize(480, 600)
+    root.minsize(min(_s(480), sw - _s(60)), min(_s(600), sh - 90))
     root.deiconify()
     try:
         root.attributes("-topmost", True)
@@ -721,7 +739,7 @@ def _build(root, app, first_run=False):
 
         from .setup_ui import _make_wave_frames
         frames = [ImageTk.PhotoImage(f, master=root)
-                  for f in _make_wave_frames(W - 52, 44, 24)]
+                  for f in _make_wave_frames(W - _s(52), _s(44), 24)]
         banner = tk.Label(root, image=frames[0], bg=BG, bd=0)
         banner._frames = frames  # keep references alive
         banner.pack(fill="x", padx=26, pady=(18, 4))
@@ -762,10 +780,10 @@ def _build(root, app, first_run=False):
         tk.Label(row, text=n + a, bg=CARD, fg=ACCENT,
                  font=("Segoe UI Semibold", 11)).pack(side="left")
         tk.Label(row, text="  " + b, bg=CARD, fg=FG, font=("Segoe UI", 11),
-                 wraplength=W - 120, justify="left").pack(side="left")
+                 wraplength=W - _s(120), justify="left").pack(side="left")
         if extra:
             tk.Label(steps, text=extra, bg=CARD, fg=SUB,
-                     font=("Segoe UI", 9), wraplength=W - 80,
+                     font=("Segoe UI", 9), wraplength=W - _s(80),
                      justify="left").pack(anchor="w", padx=(46, 14),
                                           pady=(1, 4))
 
@@ -904,7 +922,7 @@ def _build(root, app, first_run=False):
     # Shortened and clipped-proof: the old copy ran off the right edge, so the
     # user saw "a name Svara mishear" and nothing else.
     tk.Label(row, text="a name it mishears?", bg=BG, fg=SUB,
-             font=("Segoe UI", 9), wraplength=170,
+             font=("Segoe UI", 9), wraplength=_s(170),
              justify="left").pack(side="left", padx=(10, 0))
 
     # --- start with Windows: THE reliability setting. Svara only feels
@@ -950,7 +968,7 @@ def _build(root, app, first_run=False):
     tk.Label(foot, text=f"Svara v{__version__}  ·  {app.model_label}  ·  "
                         "more in the tray icon (near the clock)",
              bg=BG, fg=SUB, font=("Segoe UI", 9), anchor="w",
-             wraplength=W - 150, justify="left").pack(side="left", fill="x",
+             wraplength=W - _s(150), justify="left").pack(side="left", fill="x",
                                                       expand=True)
     tk.Button(foot, text="Finish  →" if first_run else "Close",
               bg=ACCENT, fg=BTN_TEXT,

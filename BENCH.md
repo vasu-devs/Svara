@@ -28,7 +28,51 @@ Raw JSON — full latency distribution, window sizes, machine spec — is in
 | **WER / CER** | **8.33% / 0.87%** | 11.94% / 1.91% | ≤ 6% | ✗ |
 | **Peak RSS** | 406 MB | 315 MB | | |
 | Load + warmup | 2.3 s | 1.4 s | | |
-| GPU (`large-v3-turbo` · CUDA) | **not measured** — CUDA runtime not installed here | | | |
+
+---
+
+## GPU — v0.5.3 (`ac9d06b`)
+
+Previously listed as "not measured". Measured now, on the same machine, after
+installing the CUDA runtime through Svara's own one-click download.
+
+**Machine:** as above · RTX 4060 Laptop (8 GB) · CUDA runtime 1.3 GB, float16
+**Corpus:** 3 clips, 59 s, 3 passes each
+
+| Metric | `base.en` **CPU** int8 | `base.en` **GPU** fp16 | `distil-large-v3.5` **GPU** fp16 | Budget | |
+|---|---|---|---|---|---|
+| **TTFW** | 487 ms | **36 ms** | 242 ms | ≤ 300 ms | ✓ both GPU |
+| **Partial pass** p50 | 511 ms | **61 ms** | 262 ms | | |
+| **Partial pass** p95 | 573 ms | **88 ms** | 290 ms | ≤ 500 ms | ✓ both GPU |
+| **Final pass** p50 | 539 ms | 72 ms | 274 ms | | |
+| **RTF** | 0.083 | **0.012** | 0.043 | < 1.0 | ✓ |
+| **WER / CER** | 8.33% / 0.87% | 8.33% / 0.87% | **0.00% / 0.00%** | ≤ 6% | ✓ distil only |
+| **Peak RSS** | 537 MB | 688 MB | 1632 MB | | |
+
+**The latency budget is met on a GPU, and was never met on a CPU.** `base.en`
+goes from 487 ms to 36 ms for the first word — 13.5× — on the identical model
+and identical audio, so this is purely where the matmuls run. WER is unchanged
+between the two, which is the sanity check you want: same model, same answer.
+
+`distil-large-v3.5` is the interesting row. It lands inside the 300 ms budget
+*and* transcribed all three clips exactly.
+
+> **Read that 0.00% narrowly.** It means this model got these three clips
+> right, on 59 seconds of clean synthetic speech. It is not a claim about
+> general accuracy, and a corpus this small cannot support one. What it does
+> establish is that the quality model is no longer latency-disqualified on a
+> GPU — which is the question the row was added to answer.
+
+### What this changes
+
+The CPU findings below stand: the fixed 30 s mel padding is real, and on CPU no
+amount of window trimming reaches the budget. But the conclusion drawn from it
+— that a new engine is the *only* remaining lever — was scoped to CPU without
+saying so. On a GPU the budget is already met by a model that ships today.
+
+So the Moonshine work is about **the CPU default**, which is what most users
+run and what the app installs first. It is not a prerequisite for hitting the
+latency target on capable hardware.
 
 ---
 

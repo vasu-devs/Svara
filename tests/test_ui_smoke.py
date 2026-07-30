@@ -358,3 +358,79 @@ class TestTrayMenu(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHowToWindowFitsItsText(_WindowCase):
+    """The how-to window is the first thing a new user sees after setup, and
+    the one screen that explains the hotkey. It sized itself in fixed pixels
+    (W = 660, wraplength = W - 120) while Tk renders fonts in POINTS, which
+    scale with the display's DPI. On a 150% display the text grows and the
+    window does not, so the right-hand end of each step ran off the edge -
+    including the line that says how to cancel.
+
+    These drive the real builder at several scalings. `tk scaling` is what Tk
+    itself consults for point-to-pixel conversion, so setting it reproduces a
+    high-DPI display without needing one.
+    """
+
+    def _build_at(self, scaling: float, first_run: bool = False):
+        from mywhisper import howto_ui
+
+        win = tk.Toplevel(self.root)
+        self.addCleanup(lambda: win.winfo_exists() and win.destroy())
+        win.tk.call("tk", "scaling", scaling)
+        # _build owns the window it is given: it clears and lays out children.
+        howto_ui._build(win, self.app, first_run)
+        win.update_idletasks()
+        win.update()
+        return win
+
+    def assertNothingClipped(self, win, scaling):
+        """No widget may be allocated less width than it asked for.
+
+        Comparing screen coordinates does NOT work here, and the first version
+        of this test made exactly that mistake and passed against known-broken
+        code. Tk's pack never lets a child paint outside its parent - it hands
+        the child less room and the text is simply cut. So the widget stays
+        inside the window on paper while the user sees a severed sentence.
+        Requested-vs-allocated width is the difference that is actually
+        visible.
+        """
+        win.update_idletasks()
+        truncated = []
+        for w in self._children(win):
+            if not isinstance(w, (tk.Label, tk.Button)) or not w.winfo_ismapped():
+                continue
+            text = str(w.cget("text"))
+            if not text.strip():
+                continue
+            short = w.winfo_reqwidth() - w.winfo_width()
+            if short > 1:
+                truncated.append(f"{text[:38]!r} cut by {short}px")
+        self.assertFalse(
+            truncated,
+            f"at {scaling}x scaling the window truncates its own text — "
+            f"{len(truncated)} widget(s): " + "; ".join(truncated[:4]))
+
+    def test_fits_at_standard_dpi(self):
+        self.assertNothingClipped(self._build_at(1.333), 1.333)
+
+    def test_fits_at_150_percent_dpi(self):
+        # The scaling that actually broke it, and the default on most laptops
+        # shipping a 1080p-plus panel.
+        self.assertNothingClipped(self._build_at(2.0), 2.0)
+
+    def test_fits_at_200_percent_dpi(self):
+        self.assertNothingClipped(self._build_at(2.667), 2.667)
+
+    def test_the_first_run_welcome_fits_too(self):
+        # Different, longer copy on the same layout.
+        self.assertNothingClipped(self._build_at(2.0, first_run=True), 2.0)
+
+    def test_the_cancel_hint_is_present_and_readable(self):
+        # This is the line that got cut off. Its absence would be silent.
+        win = self._build_at(2.0)
+        texts = " ".join(str(w.cget("text")) for w in self._children(win)
+                         if isinstance(w, tk.Label))
+        self.assertIn("cancel", texts.lower(),
+                      "the how-to no longer tells the user how to cancel")

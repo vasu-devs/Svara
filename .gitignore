@@ -31,3 +31,8 @@ docs/
 
 # Release artifacts (uploaded to GitHub Releases, not committed)
 *.zip
+
+# CUDA runtime, downloaded on demand by cuda_setup.download_cuda() into the
+# app's own directory. 1.3 GB of NVIDIA redistributables that are fetched from
+# the release asset when a user opts into GPU — never source, never committed.
+/cuda/

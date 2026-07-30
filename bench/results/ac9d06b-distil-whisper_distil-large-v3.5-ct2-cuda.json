@@ -1,0 +1,55 @@
+{
+  "model": "distil-whisper/distil-large-v3.5-ct2",
+  "device": "cuda",
+  "compute_type": "float16",
+  "machine": {
+    "os": "Windows 10",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "python": "3.11.4",
+    "cores": 20,
+    "ram_gb": 23.7,
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU"
+  },
+  "ttfw_ms": 242.4,
+  "partial_ms": {
+    "n": 312,
+    "p50": 261.8,
+    "p95": 290.3,
+    "min": 235.5,
+    "max": 313.5,
+    "mean": 263.3,
+    "stdev": 15.1
+  },
+  "final_ms": {
+    "n": 9,
+    "p50": 274.3,
+    "p95": 301.7,
+    "min": 255.6,
+    "max": 301.7,
+    "mean": 281.4,
+    "stdev": 18.2
+  },
+  "rtf": 0.043,
+  "wer": 0.0,
+  "cer": 0.0,
+  "term_recall": null,
+  "clips": 3,
+  "audio_seconds": 58.6,
+  "peak_rss_mb": 1632.0,
+  "warmup_s": 6.11,
+  "segments_decoded": 336,
+  "window_s": {
+    "n": 312,
+    "p50": 2.7,
+    "p95": 5.8,
+    "min": 0.3,
+    "max": 6.6,
+    "mean": 2.9,
+    "stdev": 1.6
+  },
+  "valid": true,
+  "notes": [],
+  "svara_version": "0.5.3",
+  "git": "ac9d06b",
+  "timestamp": "2026-07-31T04:02:52"
+}
