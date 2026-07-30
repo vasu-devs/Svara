@@ -1,16 +1,37 @@
+<!--
+  The Svara mark: flowing strings on a dark rounded square.
+
+  This is the SAME mark the desktop app carries (assets/icon.ico, embedded in
+  Svara.exe and inherited by the Start Menu shortcut), so the icon a user sees
+  in a browser tab is the icon they see in Windows Search and on the taskbar.
+
+  It previously used neon pink, cyan and violet from an earlier identity, which
+  matched nothing else the product ships: the app, the setup window and this
+  site are all warm ink-on-paper with a single sienna accent. One product, one
+  mark.
+-->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
-  <defs><filter id="g" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="1.5"/></filter></defs>
+  <defs>
+    <filter id="glow" x="-30%" y="-60%" width="160%" height="220%">
+      <feGaussianBlur stdDeviation="1.4"/>
+    </filter>
+  </defs>
+
+  <!-- Warm near-black, matching the app icon's tile rather than pure #000 -->
+  <rect width="64" height="64" rx="14" fill="#2e2822"/>
+
   <g fill="none" stroke-linecap="round">
-    <g filter="url(#g)" stroke-width="3.2" opacity="0.75">
-      <path d="M4 32 q10 -13 20 0 t20 0 t20 0" stroke="#ff5fa2"/>
-      <path d="M4 32 q10 13 20 0 t20 0 t20 0" stroke="#22d3ee"/>
-      <path d="M4 32 q10 -8 20 0 t20 0 t20 0" stroke="#8b5cf6"/>
-      <path d="M4 32 q10 8 20 0 t20 0 t20 0" stroke="#ff5fa2"/>
+    <!-- Soft bloom underneath, so the strings read as lit rather than drawn -->
+    <g filter="url(#glow)" stroke-width="3.4" opacity="0.55">
+      <path d="M6 32 q9 -12 18 0 t18 0 t16 0" stroke="#c1573a"/>
+      <path d="M6 32 q9 12 18 0 t18 0 t16 0" stroke="#e08a5e"/>
+      <path d="M6 32 q9 -7 18 0 t18 0 t16 0" stroke="#d0693f"/>
     </g>
-    <g stroke-width="1.6">
-      <path d="M4 32 q10 -13 20 0 t20 0 t20 0" stroke="#ff8fc4"/>
-      <path d="M4 32 q10 13 20 0 t20 0 t20 0" stroke="#7ee7f5"/>
-      <path d="M4 32 q10 -8 20 0 t20 0 t20 0" stroke="#b39bf7"/>
+    <!-- Crisp strings on top -->
+    <g stroke-width="1.7">
+      <path d="M6 32 q9 -12 18 0 t18 0 t16 0" stroke="#e8a33d" opacity="0.9"/>
+      <path d="M6 32 q9 12 18 0 t18 0 t16 0" stroke="#f0a878"/>
+      <path d="M6 32 q9 -7 18 0 t18 0 t16 0" stroke="#c1573a"/>
     </g>
   </g>
 </svg>

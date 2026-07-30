@@ -437,9 +437,16 @@ class MyWhisperApp:
         show_howto(self, first_run=first_run)
 
     def _howto_signal_listener(self):
-        """When the user double-clicks Svara.exe again, that doomed copy
-        signals this named event — respond by opening the Svara window
-        instead of leaving the click unanswered."""
+        """Launching Svara while it is already running — from the Start Menu,
+        from Windows Search, by double-clicking the exe again — signals this
+        named event, and the running copy answers by opening Settings.
+
+        Settings, not the guide: someone who searched "Svara" and clicked it is
+        looking for the application, and a click that appears to do nothing is
+        how a tray app gets reported as broken. The guide is one button away
+        inside it. (The event name is unchanged so an older running copy still
+        understands a newer exe's signal during an upgrade.)
+        """
         if os.name != "nt":
             return
         import ctypes
@@ -451,8 +458,8 @@ class MyWhisperApp:
         try:
             while not self._shutdown.is_set():
                 if k32.WaitForSingleObject(handle, 500) == 0:  # WAIT_OBJECT_0
-                    log.info("second launch detected — opening the Svara window")
-                    self.show_howto()
+                    log.info("launched while already running — opening Settings")
+                    self.show_settings()
         finally:
             k32.CloseHandle(handle)
 

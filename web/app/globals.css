@@ -276,3 +276,15 @@ em{font-style:italic;color:var(--accent);transition:color .6s}
 @media(max-width:560px){
   .hero-stats{flex-wrap:wrap}
 }
+
+/* Live download / visitor totals in the footer. Deliberately quiet: this is a
+   real number that moves, not a headline, and it must not compete with the
+   download button sitting above it. */
+.footer .live {
+  display: block;
+  margin-top: .5rem;
+  font-variant-numeric: tabular-nums;   /* digits stop jittering as they tick */
+  font-size: .78rem;
+  letter-spacing: .04em;
+  opacity: .55;
+}

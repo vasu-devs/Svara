@@ -44,7 +44,11 @@ def ensure_start_menu_shortcut() -> None:
         if link_path.exists():
             try:
                 existing = str(shortcut.TargetPath or "")
-                if Path(existing) == Path(target):
+                # Compare RESOLVED paths: Windows stores the long form in the
+                # .lnk while sys.executable can hand us the 8.3 short one
+                # ("VASUDE~1"), and a raw string compare then rewrites the
+                # shortcut on every single launch for no reason.
+                if existing and Path(existing).resolve() == Path(target).resolve():
                     return  # already correct — don't touch it
             except Exception:  # noqa: BLE001 — unreadable target → rewrite it
                 pass

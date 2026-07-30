@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Visualizer } from "@/components/Visualizer";
 import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/lib/engine";
+import { fetchReleaseStats, recordVisit, type VisitStats } from "@/lib/stats";
 
 // Versioned filename, not a static "Svara.exe" — re-uploading to the exact
 // same URL repeatedly (as every fix does) is a caching landmine: browsers
@@ -11,7 +12,7 @@ import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/l
 // so a "fresh download" can never silently be a stale one.
 // Single source of truth: the label and the URL are built from the same
 // constant, so the page can never advertise one version and serve another.
-const VERSION = "0.5.2";
+const VERSION = "0.5.3";
 const SIZE_MB = 103;
 const DOWNLOAD = `https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-${VERSION}.exe`;
 const GITHUB = "https://github.com/vasu-devs/Svara";
@@ -49,6 +50,17 @@ const STATS = [
   { shown: "90", count: 90, suffix: "+", label: "languages", accent: false },
   { shown: "8", count: 8, suffix: "", label: "live visualisers", accent: false },
 ];
+
+/** The last slot goes live once GitHub answers with the real download count.
+ *  Until then - and permanently, if the API is rate limited or unreachable -
+ *  it stays on the static stat, so the row never shows a gap or a hollow "0". */
+function statsWith(downloads: number | null) {
+  if (downloads === null) return STATS;
+  return [...STATS.slice(0, 3), {
+    shown: String(downloads), count: downloads, suffix: "",
+    label: downloads === 1 ? "download" : "downloads", accent: false,
+  }];
+}
 
 const COMPARE = [
   { label: "Where your audio goes", svara: "Your GPU, in memory", cloud: "Uploaded to their servers" },
@@ -164,10 +176,24 @@ export default function Page() {
   const [feat, setFeat] = useState(0);
   const featHover = useRef(false);
   const heroRef = useRef<HTMLDivElement>(null);
+  const [downloads, setDownloads] = useState<number | null>(null);
+  const [visits, setVisits] = useState<VisitStats | null>(null);
 
   function morph(key: string) { applyMood(key); setMoodState(key); speak(1600); }
 
   useEffect(() => { applyMood("sienna"); }, []);
+
+  // Real download count, straight from the GitHub Releases API. Never blocks
+  // paint: the stat row renders its static value and swaps if the call lands.
+  useEffect(() => {
+    let alive = true;
+    fetchReleaseStats().then((s) => {
+      if (alive && s) setDownloads(s.downloads);
+    });
+    // No-ops on the static Pages build, which has no /api route to call.
+    recordVisit().then((v) => { if (alive && v) setVisits(v); });
+    return () => { alive = false; };
+  }, []);
 
   // section-spy
   useEffect(() => {
@@ -375,7 +401,7 @@ export default function Page() {
         {/* STATS */}
         <section className="sec" style={{ padding: "clamp(3rem,7vh,5rem) var(--pad)" }}>
           <div className="stats-grid">
-            {STATS.map((s, i) => <Reveal key={i} delay={0.03}><CountStat {...s} /></Reveal>)}
+            {statsWith(downloads).map((s, i) => <Reveal key={i} delay={0.03}><CountStat {...s} /></Reveal>)}
           </div>
         </section>
 
@@ -438,6 +464,17 @@ export default function Page() {
               <a href="https://github.com/SYSTRAN/faster-whisper" target="_blank" rel="noopener">Built on faster-whisper</a>
             </div>
             <span>© 2026 Svara · <span className="accent">your voice, your machine</span> · <a className="back" href="#top">back to top ↑</a></span>
+            {/* Live totals. Rendered only once real numbers arrive, so the
+                line is absent rather than showing placeholder zeros. */}
+            {(downloads !== null || visits !== null) && (
+              <span className="live">
+                {downloads !== null &&
+                  <>{downloads.toLocaleString()} download{downloads === 1 ? "" : "s"}</>}
+                {downloads !== null && visits !== null && " · "}
+                {visits !== null &&
+                  <>{visits.unique.toLocaleString()} visitor{visits.unique === 1 ? "" : "s"}</>}
+              </span>
+            )}
           </div>
         </div>
       </footer>
