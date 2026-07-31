@@ -195,6 +195,8 @@ class TestHotkeyArmsWithoutAMicrophone(unittest.TestCase):
         app.hotkey = mock.MagicMock()
         app.quickkeys = mock.MagicMock()
         app.command_mode = None
+        app.mouse_ptt = None
+        app.meeting = None
         app.tray = None
         app.overlay = mock.MagicMock()
         app.updater = mock.MagicMock()

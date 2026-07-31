@@ -189,6 +189,11 @@ class FasterWhisperBackend(AsrBackend):
             )
             return _collect(segments)
 
+    def transcribe_final_window(self, audio: np.ndarray) -> list[Segment]:
+        """Live-mode finaliser — same decoder as the streamer used, so the
+        hypothesis lines up with what is already typed."""
+        return self.transcribe_partial(audio)
+
 
 def _collect(segments) -> list[Segment]:
     return [Segment(s.text.strip(), float(s.start), float(s.end))

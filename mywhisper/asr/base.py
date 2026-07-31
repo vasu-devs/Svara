@@ -69,3 +69,10 @@ class AsrBackend(Protocol):
                            prompt: str | None = None) -> list[Segment]:
         """Fast pass over an in-progress buffer, for live streaming."""
         ...
+
+    def transcribe_final_window(self, audio: np.ndarray) -> list[Segment]:
+        """Finalise a live utterance: decode the same trimmed window the
+        streamer used, at the best quality this backend offers. For single-
+        engine backends this is `transcribe_partial`; hybrid routes it to the
+        quality engine while partials ran on the fast one."""
+        ...

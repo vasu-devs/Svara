@@ -19,6 +19,21 @@ for pkg in ("faster_whisper", "ctranslate2", "av", "sounddevice",
     binaries += b
     hiddenimports += h
 
+# Optional engines/capture, bundled when installed in the build venv:
+# onnxruntime powers the Moonshine engine (model.backend: moonshine|hybrid) —
+# its loader is VENDORED in mywhisper/asr/moonshine.py precisely so the
+# librosa→numba dependency tail of the upstream package stays out of this
+# build. soundcard is meeting mode's WASAPI loopback capture. Both degrade
+# gracefully at runtime if absent, so a build without them still works.
+for pkg in ("onnxruntime", "soundcard"):
+    try:
+        d, b, h = collect_all(pkg)
+        datas += d
+        binaries += b
+        hiddenimports += h
+    except Exception:
+        print(f"note: {pkg} not installed — building without it")
+
 # NVIDIA CUDA runtime DLLs (cuBLAS / cuDNN / nvrtc) → bundle under nvidia\<pkg>\bin.
 # Skipped for the lean CPU build (this is the ~1.9 GB that dominates the download).
 if not CPU_ONLY:
@@ -30,9 +45,11 @@ if not CPU_ONLY:
         except Exception:
             pass
 
-# Ship a default config next to the exe (users can edit it) + the app icon.
+# Ship a default config next to the exe (users can edit it) + the app icon
+# + the Moonshine tokenizer (MIT, Useful Sensors — not hosted on their HF repo).
 datas += [("config.yaml", "."), ("assets/icon.ico", "assets"),
-          ("assets/icon.png", "assets")]
+          ("assets/icon.png", "assets"),
+          ("assets/moonshine-tokenizer.json", "assets")]
 
 hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
                   "mywhisper.setup_ui", "tkinter", "tkinter.ttk", "customtkinter",
@@ -45,6 +62,10 @@ hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
                   "mywhisper.pipeline", "mywhisper.injection",
                   "mywhisper.context", "mywhisper.transforms",
                   "mywhisper.asr", "mywhisper.asr.faster_whisper",
+                  # 0.6: lazily imported via the registry / tray toggle —
+                  # invisible to static analysis by design.
+                  "mywhisper.asr.moonshine", "mywhisper.asr.hybrid",
+                  "mywhisper.meeting",
                   "mywhisper.bench", "mywhisper.scratchpad",
                   "mywhisper.dictionary_io", "mywhisper.autolearn",
                   "mywhisper.audio_policy", "mywhisper.redact",
@@ -58,7 +79,14 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter.test", "test", "unittest"],
+    # The upstream moonshine package (and its librosa→numba→llvmlite audio-file
+    # tail, ~200 MB) must stay out: the loader is vendored and the tokenizer is
+    # a bundled asset. Static analysis would otherwise follow the optional
+    # `import moonshine_onnx` fallback in asr/moonshine.py and pull it all in.
+    excludes=["tkinter.test", "test", "unittest",
+              "moonshine_onnx", "librosa", "numba", "llvmlite", "scipy",
+              "sklearn", "soundfile", "audioread", "pooch", "soxr",
+              "lazy_loader", "joblib", "msgpack"],
     noarchive=False,
 )
 pyz = PYZ(a.pure)

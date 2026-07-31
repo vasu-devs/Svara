@@ -124,3 +124,10 @@ class Transcriber:
 
     def transcribe_partial(self, audio, prompt: str | None = None):
         return self._require().transcribe_partial(audio, prompt=prompt)
+
+    def transcribe_final_window(self, audio):
+        backend = self._require()
+        fn = getattr(backend, "transcribe_final_window", None)
+        if fn is None:  # a minimal third-party backend — partials suffice
+            return backend.transcribe_partial(audio)
+        return fn(audio)

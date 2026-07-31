@@ -135,6 +135,15 @@ class Tray:
 
             return pystray.MenuItem(label, action, checked=is_checked, radio=True)
 
+        def mouse_item(value, label):
+            def action(icon, item):
+                self.app.set_mouse_button(value)
+
+            def is_checked(item):
+                return self.app.cfg["recording"].get("mouse_button") == value
+
+            return pystray.MenuItem(label, action, checked=is_checked, radio=True)
+
         from .howto_ui import LANGS
         from .setup_ui import _CPU_OK, MODELS
 
@@ -264,6 +273,20 @@ class Tray:
                         "Reload (apply changes now)",
                         lambda icon, item: self.app.reload_dictionary(),
                     ),
+                ),
+            ),
+            pystray.MenuItem(
+                "Meeting mode — note both sides of this call",
+                lambda icon, item: self.app.toggle_meeting(),
+                checked=lambda item: self.app.meeting_active,
+            ),
+            pystray.MenuItem(
+                "Mouse dictation",
+                pystray.Menu(
+                    mouse_item(None, "Off"),
+                    mouse_item("middle", "Middle button — hold to talk"),
+                    mouse_item("x1", "Side button 1 (back)"),
+                    mouse_item("x2", "Side button 2 (forward)"),
                 ),
             ),
             pystray.MenuItem(

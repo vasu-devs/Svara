@@ -144,7 +144,17 @@ class TestCiDependencies(unittest.TestCase):
                 # Arrives with faster-whisper and does the first-run model
                 # download. Declared in requirements.txt, but CI never needs
                 # it: the download tests mock the whole thing.
-                "huggingface_hub"}
+                "huggingface_hub",
+                # The Moonshine engine (model.backend: moonshine|hybrid) —
+                # onnxruntime + the tokenizer loader; the registry degrades to
+                # faster-whisper without them, and asr tests mock the sessions.
+                # moonshine_onnx itself is only probed for its bundled
+                # tokenizer asset; the loader is vendored.
+                "onnxruntime", "tokenizers", "moonshine_onnx",
+                # Meeting mode's WASAPI loopback capture; the tray toggle
+                # toasts a pointer when it's missing, and meeting tests drive
+                # the chunker/session with synthetic audio.
+                "soundcard"}
 
     def _imports_anywhere(self) -> dict[str, set[str]]:
         """Every module imported under mywhisper/ and tests/, at ANY

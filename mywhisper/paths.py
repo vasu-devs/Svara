@@ -3,6 +3,7 @@
 Frozen (.exe): next to the executable, so users can edit config.yaml and keep
 state/logs beside the app. Source run: the project root.
 """
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -65,6 +66,20 @@ def write_reference_config() -> Path | None:
 
 def state_path() -> Path:
     return base_dir() / "state.json"
+
+
+def meetings_dir() -> Path:
+    """Where meeting notes land: Documents\\Svara Meetings — a user-visible
+    place, because notes are documents, not app state. Falls back to the app
+    dir if Documents is missing/redirected somewhere unwritable."""
+    docs = Path(os.environ.get("USERPROFILE", str(Path.home()))) / "Documents"
+    d = (docs if docs.is_dir() else base_dir()) / "Svara Meetings"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        d = base_dir() / "Svara Meetings"
+        d.mkdir(parents=True, exist_ok=True)
+    return d
 
 
 def dictionary_path() -> Path:

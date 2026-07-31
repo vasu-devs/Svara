@@ -9,6 +9,14 @@ model:
                               # distil-*.en are more accurate (slower live), and
                               # large-v3-turbo is the multilingual option.
                               # First-run setup picks the right one for your machine.
+  backend: faster-whisper     # faster-whisper | moonshine | hybrid
+                              # hybrid = Moonshine for the live word-by-word passes
+                              # (~5× faster on CPU: 94ms vs 630ms on a 1s window)
+                              # + Whisper for the final quality pass with your
+                              # dictionary boost. THE upgrade for CPU-only machines;
+                              # on a GPU, plain faster-whisper is already fast.
+  moonshine: tiny             # tiny | base — engine size for moonshine/hybrid
+                              # (tiny matched base.en's transcript in --bench)
   device: cpu                 # cuda | cpu | auto  (setup switches GPU machines to cuda)
   compute_type: int8          # GPU: int8_float16 (~1.5GB VRAM, fastest) | float16
                               # CPU: int8
@@ -42,6 +50,13 @@ recording:
                               #   the key is observed but not hidden from other apps)
                               # true  = install a low-level hook to swallow the key globally
                               #   (only if you need the key hidden; can lag input under heavy load)
+  mouse_button: null          # ALSO dictate from the mouse: middle | x1 | x2 (side
+                              #   buttons). Hold = talk, click = cancel, double-click =
+                              #   hands-free. Bonus over the keyboard key: live typing
+                              #   keeps streaming WHILE you hold the button.
+                              #   (also switchable live: tray ▸ Mouse dictation)
+  mouse_suppress: true        # swallow the bound button's normal action — X1/X2
+                              #   would otherwise also go Back/Forward in browsers
   preroll_ms: 1000            # audio kept from BEFORE you press the hotkey (never lose the first word)
   max_seconds: 600            # safety cap per utterance (10 min — was cutting you off at 2)
   auto_stop:                  # (toggle mode) stop automatically after you go silent
@@ -186,6 +201,16 @@ shortcuts:                    # global chords (pynput syntax; <cmd> = Win key)
   command_key: null               # e.g. f9 — HOLD it and SAY what to do with the
                                   #   selected text ("make this friendlier", or a
                                   #   slot name: "apply concise")
+
+meeting:                      # tray ▸ Meeting mode: notes from BOTH sides of a call —
+                              #   your mic ("You") + system audio ("Them"), transcribed
+                              #   locally into Documents\Svara Meetings\*.md, with an
+                              #   LLM summary at the end if a local server is running.
+                              #   Nothing about the call ever leaves this machine.
+  summary: true               # write the end-of-meeting summary (needs local LLM)
+  silence_ms: 700             # pause length that closes an utterance
+  max_chunk_s: 15             # ceiling per chunk, so monologues appear live
+  min_speech_s: 0.4           # shorter than this = a noise, not speech
 
 update:
   check: true                 # check GitHub for new Svara releases in the background;

@@ -226,6 +226,8 @@ def main() -> int:
                 cfg["audio"]["whisper_mode"] = True
             if saved.get("hotkey"):
                 cfg["recording"]["hotkey"] = saved["hotkey"]
+            if "mouse_button" in saved:  # None is a valid saved choice (off)
+                cfg["recording"]["mouse_button"] = saved["mouse_button"]
             if saved.get("english_variant"):
                 cfg.setdefault("locale", {})["english_variant"] = \
                     saved["english_variant"]

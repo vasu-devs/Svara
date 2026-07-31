@@ -24,6 +24,16 @@ Pillow>=10.0
 # Modern first-run setup window (rounded dark UI; falls back to plain Tk)
 customtkinter>=5.2
 
+# Moonshine streaming engine (model.backend: moonshine | hybrid) — ~5× faster
+# live partials on CPU. The model loader is vendored (mywhisper/asr/moonshine.py),
+# so only the ONNX runtime is needed; tokenizers/huggingface_hub arrive with
+# faster-whisper. Optional: without it the registry falls back to faster-whisper.
+onnxruntime>=1.18
+
+# Meeting mode: WASAPI loopback capture of system audio ("Them" on a call).
+# Optional: the tray toggle explains itself if this is missing.
+soundcard>=0.4.6
+
 # Windows shell/COM: the Start Menu shortcut (so Search finds Svara), caret
 # tracking for the pill, and part of the overlay all go through WScript.Shell
 # and UIAutomation. Every call site wraps it in try/except, so a missing

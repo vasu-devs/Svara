@@ -19,7 +19,7 @@ from .audio import Recorder
 from .context import ContextProvider
 from .endpoint import should_finish
 from .history import History
-from .hotkey import create_listener
+from .hotkey import create_listener, create_mouse_listener
 from .injection import TextInjector
 from .overlay import Overlay
 from .pipeline import CleanupPipeline, UtteranceContext
@@ -191,6 +191,18 @@ class MyWhisperApp:
             on_lock=self.on_lock,
             is_recording=lambda: self.recorder.recording,
         )
+        # Mouse-button push-to-talk (off unless recording.mouse_button is
+        # set): same gestures on a side button, and live typing keeps
+        # streaming while the button is held — a mouse hold eats no keystrokes.
+        self.mouse_ptt = create_mouse_listener(
+            cfg["recording"],
+            on_start=self.start_recording,
+            on_commit=self.stop_recording,
+            on_cancel=self.cancel_recording,
+            on_lock=self.on_lock,
+            is_recording=lambda: self.recorder.recording,
+        )
+        self.meeting = None  # a MeetingSession while the tray toggle is on
         # Optional voice-command key (off unless shortcuts.command_key is set):
         # hold it, say "make this friendlier", release — applied to selection.
         self.command_mode = None
@@ -554,6 +566,67 @@ class MyWhisperApp:
         self._save_state(hotkey=spec)
         self._refresh_tray()
         self._notify(f"Hotkey changed — double-tap {spec} to dictate.")
+
+    def set_mouse_button(self, button: str | None):
+        """Bind/unbind a mouse side button as a second dictation key, live."""
+        current = self.cfg["recording"].get("mouse_button")
+        if button == current:
+            return
+        if self.mouse_ptt:
+            self.mouse_ptt.stop()
+            self.mouse_ptt = None
+        self.cfg["recording"]["mouse_button"] = button
+        if button:
+            self.mouse_ptt = create_mouse_listener(
+                self.cfg["recording"],
+                on_start=self.start_recording,
+                on_commit=self.stop_recording,
+                on_cancel=self.cancel_recording,
+                on_lock=self.on_lock,
+                is_recording=lambda: self.recorder.recording,
+            )
+            if self.mouse_ptt is None:  # bad name — reflect reality in config
+                self.cfg["recording"]["mouse_button"] = None
+                button = None
+            else:
+                self.mouse_ptt.start()
+        self._save_state(mouse_button=button)
+        self._refresh_tray()
+        self._notify(f"Mouse dictation on the {button} button — hold it and "
+                     "speak." if button else "Mouse dictation off.")
+
+    # -- meeting mode ---------------------------------------------------------
+
+    @property
+    def meeting_active(self) -> bool:
+        return self.meeting is not None and self.meeting.active
+
+    def toggle_meeting(self):
+        """Tray ▸ Meeting mode: start/stop noting both sides of the call."""
+        if self.meeting_active:
+            m, self.meeting = self.meeting, None
+            threading.Thread(target=m.stop, daemon=True,
+                             name="meeting-stop").start()
+            return
+        try:
+            import soundcard  # noqa: F401 — fail here, not mid-capture
+        except Exception:  # noqa: BLE001
+            self._notify("Meeting mode needs the 'soundcard' package — "
+                         "pip install soundcard (source runs only).")
+            return
+        from .meeting import MeetingSession
+        self.meeting = MeetingSession(
+            get_transcriber=lambda: self.transcriber,
+            llm=self.cleanup.llm,
+            mcfg=self.cfg.get("meeting"),
+            notify=self._notify)
+        try:
+            self.meeting.start()
+        except Exception:  # noqa: BLE001
+            log.exception("meeting mode failed to start")
+            self._notify("Couldn't start meeting mode — see the log.")
+            self.meeting = None
+        self._refresh_tray()
 
     # -- updates --------------------------------------------------------------
 
@@ -1095,7 +1168,10 @@ class MyWhisperApp:
                     # than re-transcribing the whole utterance.
                     t0 = time.perf_counter()
                     window = audio[(ctx or {}).get("t0", 0):]
-                    segs = self.transcriber.transcribe_partial(window)
+                    # Full-quality finalise (hybrid routes this to whisper even
+                    # when moonshine typed the prefix; align_remainder absorbs
+                    # any cross-engine tokenisation drift at the boundary).
+                    segs = self.transcriber.transcribe_final_window(window)
                     t_stt = time.perf_counter() - t0
                     words = " ".join(t for t, _, _ in segs).split()
                     committed = (ctx or {}).get("committed", [])
@@ -1200,6 +1276,8 @@ class MyWhisperApp:
             self._notify("Starting up — your microphone isn't ready yet. "
                          "Svara will pick it up automatically in a moment.")
         self.hotkey.start()
+        if getattr(self, "mouse_ptt", None):
+            self.mouse_ptt.start()
         self.quickkeys.start()
         if self.command_mode:
             self.command_mode.start()
@@ -1262,6 +1340,15 @@ class MyWhisperApp:
             self.hotkey.stop()
         except Exception:  # noqa: BLE001
             pass
+        if getattr(self, "mouse_ptt", None):
+            self.mouse_ptt.stop()
+        if getattr(self, "meeting", None) and self.meeting.active:
+            # Quit mid-meeting: finish properly — the transcript and summary
+            # are exactly what the user would lose. Worst case a few seconds.
+            try:
+                self.meeting.stop()
+            except Exception:  # noqa: BLE001
+                log.exception("meeting shutdown failed")
         self.quickkeys.stop()
         if self.command_mode:
             self.command_mode.stop()

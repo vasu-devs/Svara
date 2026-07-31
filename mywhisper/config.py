@@ -29,7 +29,12 @@ DEFAULTS: dict = {
         "batch_size": 8,
     },
     "asr": {
-        "backend": "faster-whisper",    # the only one today; see mywhisper/asr/
+        "backend": "faster-whisper",    # faster-whisper | moonshine | hybrid
+                                        # hybrid = moonshine partials (~5× faster
+                                        # live typing on CPU) + whisper finals;
+                                        # see mywhisper/asr/
+        "moonshine": "tiny",            # tiny | base — engine size for
+                                        # moonshine/hybrid (tiny won --bench)
     },
     "recording": {
         "mode": "hold_to_record",       # hold_to_record | press_to_toggle
@@ -39,6 +44,11 @@ DEFAULTS: dict = {
         "double_tap_ms": 400,
         "suppress_key": False,          # False = poll-only (no system hook, robust default)
                                         # True = low-level hook that swallows the key globally
+        "mouse_button": None,           # ALSO dictate from the mouse: middle | x1 | x2
+                                        # (side buttons) — hold = talk, click = cancel,
+                                        # double-click = hands-free. None = off.
+        "mouse_suppress": True,         # swallow the bound button's normal action
+                                        # (X1/X2 navigate Back/Forward otherwise)
         "preroll_ms": 1000,             # audio kept from BEFORE the hotkey press
         "max_seconds": 600,             # hard cap per utterance
         "auto_stop": {                  # (toggle mode) stop when you go silent
@@ -147,6 +157,12 @@ DEFAULTS: dict = {
         "view_diff": "<cmd>+<alt>+o",       # review what the last transform changed
         "dictionary": None,                 # e.g. "<cmd>+<alt>+d": the word editor
         "command_key": None,                # e.g. "f9": hold + speak an instruction
+    },
+    "meeting": {
+        "summary": True,                # end-of-meeting LLM summary (local server)
+        "silence_ms": 700,              # pause length that closes an utterance
+        "max_chunk_s": 15,              # ceiling per chunk (monologues appear live)
+        "min_speech_s": 0.4,            # shorter than this = a noise, not speech
     },
     "update": {
         "check": True,                  # look for new releases in the background

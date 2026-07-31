@@ -92,18 +92,29 @@ v0.4.1 source — see [`PLAN.md`](PLAN.md) for the gap analysis and
 - ✅ Architecture: `pipeline/`, `injection/`, `context/`, `asr/`, `streaming.py`.
   355 tests, up from 74.
 
+## Shipped in v0.6.0
+
+- ✅ **Moonshine engine + hybrid mode** (#1 below — the 30-second-pad problem).
+  Vendored MIT loader (onnxruntime only; the librosa→numba tail stays out of
+  the build), Silero-VAD-chunked partials so trimming keeps working, length
+  bucketing so ORT kernels stay warm, and loop-abort guards for truncated
+  chunks. Measured on this machine: **1 s window 94 ms vs 628 ms** (whisper
+  base.en, CPU) — with `hybrid` keeping Whisper (and the dictionary boost) for
+  the final pass. English-only by design; degrades to pure Whisper per-call.
+- ✅ **Meeting mode** — mic + WASAPI loopback ("You"/"Them" without any
+  diarization model), silence-gated chunking, live Markdown into
+  `Documents\Svara Meetings`, end-of-meeting local-LLM summary, redaction-safe
+  logging, empty meetings leave no file.
+- ✅ **Mouse-button push-to-talk** — middle/X1/X2 with the same gesture machine
+  as the keyboard (hold/click/double-click), button suppressed so X1/X2 don't
+  navigate, live typing continues while held (a mouse hold eats no keystrokes).
+
 ## Still open (the honest tail)
 
-The v0.4 tail (auto-learn, caret context, numbered lists, dictionary editor,
-diff + slots) all shipped in v0.5.0 above. What is genuinely left:
-
-1. **A recogniser that doesn't pad to 30 seconds.** The benchmark's finding: a
-   **7.7× larger decode window costs 8% more time**, because Whisper's encoder
-   runs on a mel spectrogram padded to a fixed 30 s. Trimming and commit-policy
-   tuning therefore cannot reach the latency budget, and `tiny.en` only gets
-   close by paying +43% WER. The `asr/` seam exists for this; Moonshine is first
-   to try, since variable-length input is its design premise. **This is the only
-   remaining latency lever** — see [`BENCH.md`](BENCH.md).
+1. ~~A recogniser that doesn't pad to 30 seconds~~ — **shipped in v0.6.0**
+   (above). Still open from it: a `--bench` engine-comparison row recorded in
+   BENCH.md, and making `hybrid` the *default* on CPU machines once real-corpus
+   WER numbers say so.
 2. **A GPU benchmark row.** Every published number so far is CPU `base.en`. The
    CUDA path is the single biggest change available today and is unmeasured.
 3. **A real benchmark corpus.** `bench/corpus/` currently holds synthesised

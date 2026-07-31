@@ -141,6 +141,23 @@ subscription, no telemetry, and it works offline.
 - **It can learn your words, but only if you say so.** Opt-in auto-learn watches
   the corrections *you* make and **suggests** dictionary entries after seeing the
   same fix three times across two sessions. It never adds one on its own.
+- **Meeting notes, from both sides.** Tray ▸ Meeting mode captures your mic
+  ("You") and the system's audio ("Them" — whatever Zoom/Meet/Teams plays) via
+  WASAPI loopback, transcribes locally into `Documents\Svara Meetings`, and
+  summarizes with your local LLM when the meeting ends. Speaker separation with
+  no diarization model: the two audio paths *are* the two speakers. Cloud
+  dictation tools cannot do this without uploading your calls.
+- **A second engine, built for CPU machines.** `model.backend: hybrid` runs
+  [Moonshine](https://github.com/usefulsensors/moonshine) for the live
+  word-by-word passes — **~5× faster than Whisper on short windows** (94 ms vs
+  628 ms on 1 s of audio, measured), because its cost scales with what you said
+  instead of a fixed 30-second pad — and keeps Whisper for the final quality
+  pass with your dictionary boost. English-only; falls back to pure Whisper
+  automatically per-utterance when it can't apply.
+- **Dictate from the mouse.** Bind a side button (tray ▸ Mouse dictation):
+  hold = talk, click = cancel, double-click = hands-free — and live typing
+  keeps streaming *while* the button is held, since a held mouse button eats no
+  keystrokes. The button's normal Back/Forward action is suppressed while bound.
 
 ## Requirements
 

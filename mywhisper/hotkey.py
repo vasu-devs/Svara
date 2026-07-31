@@ -451,6 +451,123 @@ class ComboListener:
             log.exception("hotkey release handler failed")
 
 
+# --------------------------------------------------------------------------
+# Mouse-button push-to-talk ("Mouse Flow")
+# --------------------------------------------------------------------------
+
+# (WM_DOWN, WM_UP, XBUTTON high-word or None) per bindable button. Left and
+# right click are deliberately not bindable — suppressing either makes the
+# machine unusable, and not suppressing them starts dictation on every click.
+_MOUSE_MSGS = {
+    "middle": (0x0207, 0x0208, None),   # WM_MBUTTONDOWN / WM_MBUTTONUP
+    "x1": (0x020B, 0x020C, 1),          # WM_XBUTTONDOWN / UP, XBUTTON1
+    "x2": (0x020B, 0x020C, 2),          # back/forward side buttons
+}
+MOUSE_BUTTONS = tuple(_MOUSE_MSGS)
+
+
+class MouseButtonListener:
+    """The dictation gesture on a mouse button: hold = push-to-talk, quick
+    click = cancel, double-click = hands-free lock, click again = finish.
+    Same `LongPressMachine` as the keyboard path, same semantics, one
+    deliberate difference: a held mouse button does not eat synthetic
+    keystrokes, so `held` is always False and live typing streams even
+    while you keep the button pressed.
+
+    Uses pynput's low-level mouse hook with an event filter so the button's
+    normal action is SUPPRESSED while bound (suppress=True default): X1/X2
+    would otherwise also navigate back/forward in every browser, and middle
+    would autoscroll — a dictation key with side effects is a trap."""
+
+    locked = False   # mirrored from the machine for the app's checks
+    held = False     # see class docstring
+
+    def __init__(self, rec_cfg: dict, on_start, on_commit, on_cancel, on_lock,
+                 is_recording):
+        from pynput import mouse
+
+        self.button = str(rec_cfg.get("mouse_button") or "").lower()
+        if self.button not in _MOUSE_MSGS:
+            raise ValueError(f"unknown mouse_button {self.button!r} "
+                             f"(known: {', '.join(_MOUSE_MSGS)})")
+        self.suppress = bool(rec_cfg.get("mouse_suppress", True))
+        self.on_start = on_start
+        self.on_commit = on_commit
+        self.on_cancel = on_cancel
+        self.on_lock = on_lock
+        self.is_recording = is_recording
+        self.machine = LongPressMachine(
+            long_press_s=rec_cfg["long_press_ms"] / 1000.0,
+            double_tap_s=rec_cfg["double_tap_ms"] / 1000.0,
+            double_tap_lock=bool(rec_cfg["double_tap_lock"]),
+        )
+        self._msgs = _MOUSE_MSGS[self.button]
+        self._listener = mouse.Listener(win32_event_filter=self._filter)
+
+    def _filter(self, msg, data):
+        down_msg, up_msg, xbtn = self._msgs
+        if msg not in (down_msg, up_msg):
+            return True
+        if xbtn is not None and (data.mouseData >> 16) != xbtn:
+            return True  # the *other* X button
+        now = time.monotonic()
+        action = (self.machine.key_down(now) if msg == down_msg
+                  else self.machine.key_up(now))
+        self.locked = self.machine.locked
+        if action:
+            # Callbacks run on their own thread: this filter sits in the
+            # system mouse input chain and must return in microseconds.
+            threading.Thread(target=self._dispatch, args=(action,),
+                             daemon=True, name="mouse-ptt").start()
+        if self.suppress:
+            try:
+                self._listener.suppress_event()
+            except Exception:  # noqa: BLE001
+                pass
+        return True
+
+    def _dispatch(self, action: str):
+        try:
+            if action == "start":
+                self.on_start()
+            elif action == "commit":
+                self.on_commit()
+            elif action == "cancel":
+                self.on_cancel()
+            elif action == "lock":
+                self.on_lock()
+        except Exception:  # noqa: BLE001
+            log.exception("mouse PTT %s handler failed", action)
+
+    def start(self):
+        self._listener.start()
+        log.info("Mouse PTT armed: hold [%s button] to talk · click = cancel "
+                 "· double-click = hands-free%s", self.button,
+                 " · button suppressed from apps" if self.suppress else "")
+
+    def stop(self):
+        try:
+            self._listener.stop()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def create_mouse_listener(rec_cfg: dict, on_start, on_commit, on_cancel,
+                          on_lock, is_recording):
+    """A MouseButtonListener when `recording.mouse_button` is set, else None.
+    Never raises — a bad button name in config must not stop the keyboard
+    hotkey from arming."""
+    if not rec_cfg.get("mouse_button"):
+        return None
+    try:
+        return MouseButtonListener(rec_cfg, on_start, on_commit, on_cancel,
+                                   on_lock, is_recording)
+    except Exception:  # noqa: BLE001
+        log.warning("mouse PTT disabled (mouse_button=%r)",
+                    rec_cfg.get("mouse_button"), exc_info=True)
+        return None
+
+
 def create_listener(rec_cfg: dict, on_start, on_commit, on_cancel, on_lock,
                     is_recording):
     """Pick the transport for the configured hotkey.
