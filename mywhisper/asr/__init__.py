@@ -1,6 +1,7 @@
 """Speech-recognition backends.
 
-`model.backend` is the config key. Three engines:
+`asr.backend` is the config key (bridged into the model cfg at startup, since
+that is the dict every Transcriber construction receives). Three engines:
 
 - **faster-whisper** — the default: quality, hotwords, 90+ languages.
 - **moonshine** — English-only ONNX engine whose cost scales with audio length

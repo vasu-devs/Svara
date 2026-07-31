@@ -29,7 +29,7 @@ DEFAULTS: dict = {
         "batch_size": 8,
     },
     "asr": {
-        "backend": "faster-whisper",    # faster-whisper | moonshine | hybrid
+        "backend": "faster-whisper",    # faster-whisper | moonshine | hybrid —
                                         # hybrid = moonshine partials (~5× faster
                                         # live typing on CPU) + whisper finals;
                                         # see mywhisper/asr/

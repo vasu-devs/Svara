@@ -236,6 +236,14 @@ def main() -> int:
         except (OSError, ValueError):
             pass
 
+    # Engine selection: asr.backend / asr.moonshine are the documented keys;
+    # they ride in the model cfg because that is the dict every Transcriber
+    # construction receives (app, setup, model/device switches, --bench).
+    # setdefault, so a hand-set model.backend override still wins.
+    asr_cfg = cfg.get("asr") or {}
+    cfg["model"].setdefault("backend", asr_cfg.get("backend", "faster-whisper"))
+    cfg["model"].setdefault("moonshine", asr_cfg.get("moonshine", "tiny"))
+
     # Personal dictionary (config section + dictionary.yaml overlay) →
     # decode-time recognition boost (names, jargon).
     cfg["dictionary"] = config_mod.merged_dictionary(cfg)

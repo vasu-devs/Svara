@@ -12,7 +12,7 @@ import { fetchReleaseStats, recordVisit, type VisitStats } from "@/lib/stats";
 // so a "fresh download" can never silently be a stale one.
 // Single source of truth: the label and the URL are built from the same
 // constant, so the page can never advertise one version and serve another.
-const VERSION = "0.6.0";
+const VERSION = "0.6.1";
 const SIZE_MB = 103;
 const DOWNLOAD = `https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-${VERSION}.exe`;
 const GITHUB = "https://github.com/vasu-devs/Svara";

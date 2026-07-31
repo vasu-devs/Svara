@@ -9,14 +9,6 @@ model:
                               # distil-*.en are more accurate (slower live), and
                               # large-v3-turbo is the multilingual option.
                               # First-run setup picks the right one for your machine.
-  backend: faster-whisper     # faster-whisper | moonshine | hybrid
-                              # hybrid = Moonshine for the live word-by-word passes
-                              # (~5× faster on CPU: 94ms vs 630ms on a 1s window)
-                              # + Whisper for the final quality pass with your
-                              # dictionary boost. THE upgrade for CPU-only machines;
-                              # on a GPU, plain faster-whisper is already fast.
-  moonshine: tiny             # tiny | base — engine size for moonshine/hybrid
-                              # (tiny matched base.en's transcript in --bench)
   device: cpu                 # cuda | cpu | auto  (setup switches GPU machines to cuda)
   compute_type: int8          # GPU: int8_float16 (~1.5GB VRAM, fastest) | float16
                               # CPU: int8
@@ -263,8 +255,15 @@ streaming:
                               #   improve continuation OR induce repetition.
 
 asr:
-  backend: faster-whisper     # the only engine today. The seam exists so another can be
-                              #   benchmarked in (mywhisper/asr/) — see PLAN.md §7.
+  backend: faster-whisper     # faster-whisper | moonshine | hybrid
+                              #   hybrid = Moonshine for the live word-by-word passes
+                              #   (~5× faster on CPU: 94ms vs 628ms on a 1s window,
+                              #   measured) + Whisper for the final quality pass with
+                              #   your dictionary boost. THE upgrade for CPU-only
+                              #   machines; on a GPU, faster-whisper is already fast.
+                              #   English-only engines fall back per-utterance.
+  moonshine: tiny             # tiny | base — engine size for moonshine/hybrid
+                              #   (tiny matched base.en's transcript in --bench)
 
 audio:
   sample_rate: 16000
