@@ -54,7 +54,8 @@ Svara is a system-wide dictation app for Windows. Double-tap `Right Alt`, speak,
 and your words are typed at the cursor in whatever app you are using — Slack, VS
 Code, a browser, a terminal, anything. Every stage runs on your device with
 [faster-whisper](https://github.com/SYSTRAN/faster-whisper) on your GPU, so your
-audio is never recorded to disk and never uploaded anywhere.
+audio is never uploaded. A temporary local recovery file protects unfinished
+dictations from crashes; it is removed after successful processing or cancellation.
 
 It is the local, free answer to cloud dictation tools: no account, no
 subscription, no telemetry, and it works offline.
@@ -62,7 +63,7 @@ subscription, no telemetry, and it works offline.
 ## Features
 
 - **Runs entirely on your machine.** Audio is captured, transcribed, and
-  discarded in memory. There is no server to send it to. Works with the network
+  processed locally, with a temporary crash-recovery file. There is no server to send it to. Works with the network
   cable unplugged. What Svara reads and writes is spelled out in
   [`PRIVACY.md`](PRIVACY.md) — including the three features that are off by
   default because they read more than your voice.
@@ -93,7 +94,7 @@ subscription, no telemetry, and it works offline.
   — still fully offline.
 - **Works in every app.** System-wide text injection places words at the cursor
   anywhere you can type.
-- **A UI you enjoy.** Eight live sound visualizers and pop-culture themes (Matrix,
+- **A UI you enjoy.** Ten live sound visualizers and pop-culture themes (Matrix,
   Cyberpunk, Sakura, Evangelion, Saiyan, Vaporwave, plus clean minimal).
 - **Gets out of your way, automatically.** The pill reads the **text caret** of
   the focused app (`GetGUIThreadInfo`, with a UI-Automation fallback for browsers
@@ -147,7 +148,7 @@ subscription, no telemetry, and it works offline.
   summarizes with your local LLM when the meeting ends. Speaker separation with
   no diarization model: the two audio paths *are* the two speakers. Cloud
   dictation tools cannot do this without uploading your calls.
-- **A second engine, built for CPU machines.** `model.backend: hybrid` runs
+- **A second engine, built for CPU machines.** `asr.backend: hybrid` runs
   [Moonshine](https://github.com/usefulsensors/moonshine) for the live
   word-by-word passes — **~5× faster than Whisper on short windows** (94 ms vs
   628 ms on 1 s of audio, measured), because its cost scales with what you said
@@ -191,7 +192,7 @@ fully offline. Your settings live in `%LOCALAPPDATA%\Svara\config.yaml`.
 
 ```bat
 setup.bat            :: creates a Python 3.11 venv and installs dependencies
-run.bat --doctor     :: verifies mic, CUDA runtime, and GPU transcription
+run.bat --doctor     :: checks mic format, runtime, and the configured cached model
 MyWhisper.bat        :: start it (look for the mic icon in the tray)
 ```
 
@@ -418,13 +419,16 @@ flickering.
 
 ### Themes and visualizers
 
-Eight live sound visualizers (strings, bars, spectrum, scope, pulse, particles,
-beam, pixels) and a set of themes:
+Ten live sound visualizers (strings, bars, spectrum, scope, pulse, particles,
+beam, pixels, orbit, ribbon) and a set of themes. Settings → Appearance offers
+theme, waveform, background, and reduced-motion controls:
 
 ```yaml
 ui:
   theme: minimal-dark   # minimal-dark | minimal-light | matrix | cyberpunk
                         # | sakura | evangelion | saiyan | vaporwave
+  wave: orbit           # orbit and ribbon are new options
+  reduced_motion: false # freeze decorative movement; also available in Settings
 ```
 
 The tray icon has a live theme picker, and your choice persists across restarts.
@@ -457,7 +461,7 @@ ordering invariants, the threading rules and the caching strategy.
 .venv\Scripts\python.exe -m unittest discover -s tests -q
 ```
 
-273 tests, about 17 seconds. Most are pure functions with no audio, model or
+More than 540 tests. Most are pure functions with no audio, model or
 network; `tests/test_livepath.py` loads a real model and pushes audio through
 the real streaming path end-to-end, asserting that nothing is duplicated or
 dropped at the stream/tail boundary.
@@ -538,8 +542,10 @@ Two things worth knowing here:
 
 ## Troubleshooting
 
-- **`run.bat --doctor`** checks your mic, CUDA runtime, and a real GPU transcribe.
-  Run it first.
+- **`run.bat --doctor`** validates your configured microphone's input format,
+  CUDA availability, and a synthetic transcription through your selected cached
+  model. CPU-only machines are supported. It never downloads model weights;
+  finish first-run setup online if it reports a missing model.
 - **CUDA / cuDNN errors.** faster-whisper ≥ 1.1 uses CTranslate2 ≥ 4.5, which needs
   **cuDNN 9** (the pip wheel `nvidia-cudnn-cu12>=9,<10`, already in
   `requirements.txt`). The old "use cuDNN 8" advice applies only to older
@@ -552,7 +558,7 @@ Two things worth knowing here:
 
 ## The website
 
-The marketing site lives in [`web/`](web/) — a **Next.js + Framer Motion** app with
+The marketing site lives in [`web/`](web/) — a **Next.js 16 + React 19** app with
 a live recreation of Svara's flowing-strings pill running the same visualizer
 math as the desktop app. It deploys to **Vercel** (set the root directory to
 `web/`) and is mirrored to **GitHub Pages** at

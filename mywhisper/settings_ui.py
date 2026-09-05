@@ -171,7 +171,7 @@ def _combo(cell, values, current, on_pick, width=22):
     from tkinter import ttk
 
     labels = [label for _v, label in values]
-    var = tk.StringVar(value=next((lb for v, lb in values if v == current),
+    var = tk.StringVar(master=cell, value=next((lb for v, lb in values if v == current),
                                   labels[0] if labels else ""))
     box = ttk.Combobox(cell, values=labels, textvariable=var, state="readonly",
                        style="S.TCombobox", width=width, font=(UI, 10))
@@ -191,7 +191,7 @@ def _switch(cell, text, get, toggle, warn: str = ""):
     """A checkbox that reads its state from the app, so it can never disagree
     with reality the way the old Startup box did."""
     import tkinter as tk
-    var = tk.BooleanVar(value=bool(get()))
+    var = tk.BooleanVar(master=cell, value=bool(get()))
 
     def flip():
         toggle(bool(var.get()))
@@ -442,11 +442,31 @@ def _about(parent, app):
     return s.frame
 
 
+def _appearance(parent, app):
+    from .overlay import WAVES, BGS
+    from .themes import theme_names
+
+    s = Section(parent, "Appearance", "Make the recording pill feel like yours. Changes apply immediately.")
+    _combo(s.row("Palette", "Choose the colours of your recording pill."),
+           [(v, v.replace("-", " ").title()) for v in theme_names()],
+           app.current_theme, app.set_theme)
+    _combo(s.row("Visualizer", "Orbit and Ribbon join the classic sound visualizers."),
+           [(v, v.title()) for v in WAVES], app.current_wave, app.set_wave_named)
+    _combo(s.row("Background", "From a quiet solid fill to an animated aurora."),
+           [(v, v.title()) for v in BGS], app.current_bg, app.set_bg_named)
+    s.rule()
+    _switch(s.row("Reduce motion", "Keep the waveform still and move the pill immediately."),
+            "Reduce animation", lambda: app.cfg["ui"].get("reduced_motion", False),
+            app.set_reduced_motion)
+    return s.frame
+
+
 SECTIONS = [
     ("Speech", _speech),
     ("Writing", _writing),
     ("Your words", _words),
     ("Shortcuts", _shortcuts),
+    ("Appearance", _appearance),
     ("Privacy", _privacy),
     ("About", _about),
 ]
@@ -518,9 +538,9 @@ def build(root, app):
     def on_wheel(event):
         canvas.yview_scroll(int(-event.delta / 120), "units")
 
-    # bind_all so the wheel works wherever the pointer is inside the window,
-    # and is unbound on close so it cannot hijack the other Svara windows.
-    win.bind_all("<MouseWheel>", on_wheel)
+    # Toplevel bindtags also receive child events, without stealing scrolling
+    # from History or Scratchpad through a global binding.
+    win.bind("<MouseWheel>", on_wheel)
 
     state = {"current": None, "frame": None}
     buttons: dict[str, tuple] = {}
@@ -573,7 +593,7 @@ def build(root, app):
 
     def close():
         try:
-            win.unbind_all("<MouseWheel>")
+            win.unbind("<MouseWheel>")
         except Exception:  # noqa: BLE001
             pass
         win.destroy()

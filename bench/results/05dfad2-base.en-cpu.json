@@ -1,0 +1,58 @@
+{
+  "model": "base.en",
+  "device": "cpu",
+  "compute_type": "int8",
+  "machine": {
+    "os": "Windows 11",
+    "cpu": "Intel64 Family 6 Model 183 Stepping 1, GenuineIntel",
+    "python": "3.13.5",
+    "cores": 20,
+    "ram_gb": 23.7,
+    "gpu": "NVIDIA GeForce RTX 4060 Laptop GPU"
+  },
+  "ttfw_ms": 647.9,
+  "partial_ms": {
+    "n": 104,
+    "p50": 695.2,
+    "p95": 781.9,
+    "min": 465.2,
+    "max": 1937.1,
+    "mean": 714.1,
+    "stdev": 130.2
+  },
+  "final_ms": {
+    "n": 3,
+    "p50": 739.1,
+    "p95": 819.6,
+    "min": 704.5,
+    "max": 819.6,
+    "mean": 754.4,
+    "stdev": 59.1
+  },
+  "rtf": 0.116,
+  "wer": 0.0833,
+  "cer": 0.0087,
+  "term_recall": null,
+  "clips": 3,
+  "audio_seconds": 19.5,
+  "peak_rss_mb": 343.2,
+  "warmup_s": 1.79,
+  "segments_decoded": 112,
+  "window_s": {
+    "n": 104,
+    "p50": 2.7,
+    "p95": 5.4,
+    "min": 0.3,
+    "max": 5.8,
+    "mean": 2.8,
+    "stdev": 1.5
+  },
+  "valid": true,
+  "notes": [
+    "Measured from the uncommitted v0.7.0 release worktree; git records its base commit.",
+    "PyInstaller packaging ran concurrently; these timings are not a speedup claim."
+  ],
+  "svara_version": "0.7.0",
+  "git": "05dfad2",
+  "timestamp": "2026-09-05T23:47:39"
+}

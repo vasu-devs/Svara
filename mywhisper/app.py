@@ -91,6 +91,8 @@ class MyWhisperApp:
         self._queue: queue.Queue = queue.Queue()
         self._stream_ctx: dict | None = None
         self._stopping = False
+        self._finalize_timer = None
+        self._processing_pending = False
         self._voice_rms: float | None = None  # your speaking-loudness baseline
 
         self._model_switch = False
@@ -815,6 +817,11 @@ class MyWhisperApp:
         self._save_state(bg=name)
         log.info("background → %s", name)
 
+    def set_reduced_motion(self, enabled: bool):
+        self.cfg["ui"]["reduced_motion"] = bool(enabled)
+        self.overlay.set_reduced_motion(bool(enabled))
+        self._save_state(reduced_motion=bool(enabled))
+
     def set_theme(self, name: str):
         """Switch the overlay theme live and remember it across restarts."""
         self.current_theme = name
@@ -831,6 +838,12 @@ class MyWhisperApp:
 
     def start_recording(self):
         if self.paused or self.recorder.recording:
+            return
+        if self._processing_pending or self._stopping:
+            self._notify("Finishing your previous dictation — try again in a moment.")
+            return
+        if not self.recorder.available:
+            self._notify("No microphone is available — reconnect it or check Windows microphone access. Svara will retry automatically.")
             return
         # Say why nothing is going to happen, rather than opening the pill and
         # swallowing the utterance. The monitor thread is retrying the load.
@@ -862,14 +875,17 @@ class MyWhisperApp:
             log.info("live typing disabled for %s (%s) — text is inserted when "
                      "you finish", self._ctx.app or "this window",
                      "elevated" if self._ctx.is_elevated else "terminal")
+        self._stream_ctx = {"typed_total": 0, "mode": mode,
+                            "utterance": self._ctx}
         if mode in ("preview", "live"):
-            self._stream_ctx = {"typed_total": 0, "mode": mode}
             threading.Thread(target=self._streamer, args=(self._stream_ctx,),
                              daemon=True, name="streamer").start()
         log.info("● recording…")
 
     def on_lock(self):
         """Double-tap: hands-free mode — recording continues until next tap."""
+        if not self.recorder.recording:
+            return
         self.overlay.show("locked")
         if self.cfg["ui"]["sounds"]:
             _chime(784, 130, 0.3)  # G5 — soft, bright: "now hands-free"
@@ -931,11 +947,17 @@ class MyWhisperApp:
     def cancel_recording(self):
         """Quick tap: discard whatever was captured, inject nothing."""
         with self._stop_lock:
+            if not self.recorder.recording:
+                return
+            if self._finalize_timer is not None:
+                self._finalize_timer.cancel()
+                self._finalize_timer = None
+            self._stopping = False
             # keep_tail: a cancel is usually tap 1 of a double-tap — hand its
             # audio to the pre-roll so the locked recording hears everything
             audio = self.recorder.stop(keep_tail=True)
-        self.recorder.discard_recovery()  # cancelled — nothing to recover
-        self._stream_ctx = None  # stops the streamer thread
+            self.recorder.discard_recovery()  # cancelled — nothing to recover
+            self._stream_ctx = None  # stops the streamer thread
         self.overlay.hide()
         if self.tray:
             self.tray.set_recording(False)
@@ -953,21 +975,31 @@ class MyWhisperApp:
         self.overlay.hide()  # pill closes right at your tap — no tick, no counter
         if self.cfg["ui"]["sounds"]:
             _chime(587, 150, 0.32)  # D5 — warm: "done, working on it"
-        threading.Timer(0.4, self._finalize_stop).start()
+        self._finalize_timer = threading.Timer(0.4, self._finalize_stop,
+                                               args=(self._stream_ctx,))
+        self._finalize_timer.daemon = True
+        self._finalize_timer.start()
 
-    def _finalize_stop(self):
+    def _finalize_stop(self, expected_ctx=None):
         try:
             with self._stop_lock:
+                if expected_ctx is not None and expected_ctx is not self._stream_ctx:
+                    return
+                if not self._stopping or self._shutdown.is_set():
+                    return
                 audio = self.recorder.stop()  # clears pre-roll: no tail leaks
-            ctx, self._stream_ctx = self._stream_ctx, None
+                ctx, self._stream_ctx = self._stream_ctx, None
+                self._processing_pending = audio is not None
             if self.tray:
                 self.tray.set_recording(False)
             if audio is None:
                 self.overlay.hide()
+                self.recorder.discard_recovery()
                 return
             self._queue.put((audio, ctx))
         finally:
-            self._stopping = False
+            if expected_ctx is None or self._stream_ctx is None or expected_ctx is self._stream_ctx:
+                self._stopping = False
 
     # -- background threads -----------------------------------------------------
 
@@ -1105,13 +1137,21 @@ class MyWhisperApp:
                             flags = self._word_caps_flags(segs, window)
                             styled = self._apply_caps(step.words, flags)[
                                 step.commit_from:step.commit_to]
-                            self.injector.inject_stream(
-                                " ".join(styled) + " ", self._ctx)
-                            ctx.setdefault("all_typed", []).extend(styled)
-                            ctx["typed_total"] += len(styled)
-                            self.session_words += len(styled)
-                        ctx["t0"] = state.t0
-                        ctx["committed"] = state.committed
+                            with self._stop_lock:
+                                if ctx is not self._stream_ctx or not self.recorder.recording:
+                                    break
+                                self.injector.inject_stream(
+                                    " ".join(styled) + " ", ctx.get("utterance", self._ctx))
+                                ctx.setdefault("all_typed", []).extend(styled)
+                                ctx["typed_total"] += len(styled)
+                                self.session_words += len(styled)
+                                ctx["t0"] = state.t0
+                                ctx["committed"] = list(state.committed)
+                        else:
+                            with self._stop_lock:
+                                if ctx is self._stream_ctx:
+                                    ctx["t0"] = state.t0
+                                    ctx["committed"] = list(state.committed)
                 except Exception:  # noqa: BLE001
                     # The first failure is loud: a streaming loop that fails
                     # every pass types nothing at all, and at DEBUG that looks
@@ -1158,6 +1198,7 @@ class MyWhisperApp:
             except queue.Empty:
                 continue
             try:
+                utterance = (ctx or {}).get("utterance", self._ctx)
                 dur = len(audio) / self.recorder.sr
                 typed = (ctx or {}).get("typed_total", 0)
                 if typed:
@@ -1186,8 +1227,8 @@ class MyWhisperApp:
                     # already on screen, and re-running locale/personal rules
                     # over it would produce a second, differently-formatted
                     # copy of text the user is already looking at.
-                    tail = self.cleanup.run(" ".join(remainder), ctx=self._ctx)
-                    n = self.injector.inject(tail, self._ctx) if tail else 0
+                    tail = self.cleanup.run(" ".join(remainder), ctx=utterance)
+                    n = self.injector.inject(tail, utterance) if tail else 0
                     self.session_words += len(remainder)
                     self.overlay.hide()
                     all_typed = " ".join(
@@ -1201,6 +1242,7 @@ class MyWhisperApp:
                 t_stt = time.perf_counter() - t0
                 if not segs:
                     self.overlay.hide()
+                    self.recorder.discard_recovery()
                     log.info("(no speech detected — %.1fs of audio)", dur)
                     continue
                 # loudness → CAPS per segment, then the cleanup pipeline
@@ -1209,10 +1251,10 @@ class MyWhisperApp:
                     (seg_text.upper() if loud else seg_text)
                     for (seg_text, _s, _e), loud in zip(segs, seg_flags))
                 t0 = time.perf_counter()
-                text = self.cleanup.run(text, ctx=self._ctx)
+                text = self.cleanup.run(text, ctx=utterance)
                 text = self._auto_transform(text)
                 t_clean = time.perf_counter() - t0
-                n = self.injector.inject(text, self._ctx)
+                n = self.injector.inject(text, utterance)
                 self.session_words += len(text.split())
                 self.overlay.hide()
                 self._record_history(text)
@@ -1226,6 +1268,10 @@ class MyWhisperApp:
             except Exception:  # noqa: BLE001 — one bad utterance must not kill the app
                 self.overlay.hide()
                 log.exception("%s failed to process utterance", E_STT_DECODE)
+                self._notify("Could not finish dictation. Recovery audio has been kept; check the local log for details.")
+            finally:
+                self._processing_pending = False
+                self._queue.task_done()
 
     # -- lifecycle -------------------------------------------------------------------
 
@@ -1336,6 +1382,8 @@ class MyWhisperApp:
             return
         log.info("shutting down…")
         self._shutdown.set()
+        if self._finalize_timer is not None:
+            self._finalize_timer.cancel()
         try:
             self.hotkey.stop()
         except Exception:  # noqa: BLE001

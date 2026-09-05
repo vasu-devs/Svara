@@ -1,21 +1,23 @@
 # Svara web (Next.js)
 
-The interactive landing site for Svara. Next.js 14 (App Router) + Framer Motion,
-with a live canvas engine that renders the app's real visualizers.
+The interactive landing site for Svara. Next.js 16 (App Router) + React 19,
+with CSS transitions and a shared canvas animation engine. Requires Node.js 20.9+.
 
 Highlights:
-- Hero pill you can **drag and fling** (spring physics), with **cursor-reactive** ribbons
-- **Scroll-driven showcase** that scrubs through all eight visualizers
+- A bounded draggable hero pill and cursor-reactive ribbons
+- Three scripted dictation examples with playback, pause, replay, and progress
+- Eight canvas visualizers, suspended when offscreen or the tab is hidden
 - **Tap-to-recolor** theming that morphs the whole page accent
-- Magnetic buttons, spotlight cards, count-up stats, live typing demo
+- Reduced-motion support, keyboard focus styles, and a mobile-friendly layout
 
 ## Develop
 
 ```bash
-npm install
+npm ci
 npm run dev      # http://localhost:3000
 npm run build    # production build
 npm run start    # serve the production build
+npm run typecheck # TypeScript validation (also exposed as the lint alias)
 ```
 
 ## Deploy to Vercel
@@ -28,5 +30,10 @@ npm run start    # serve the production build
 Optional: set `NEXT_PUBLIC_SITE_URL` to your Vercel domain so Open Graph image
 URLs resolve absolutely.
 
-The simpler static version of the site also lives in `../docs` and is served via
-GitHub Pages at https://vasu-devs.github.io/Svara/.
+For GitHub Pages, build with `GH_PAGES=1` (PowerShell:
+`$env:GH_PAGES='1'; npm run build`). This exports the same site to `out/` under
+the `/Svara` base path. Server-only visitor counting is excluded and never
+requested by that build. The GitHub Actions deployment publishes `web/out`.
+
+Google Fonts are downloaded at build time and served from the app afterwards.
+An initial production build needs network access to Google's font service.

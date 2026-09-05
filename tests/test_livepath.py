@@ -63,6 +63,7 @@ class FakeRecorder:
     time, stop() returns everything — the exact surface app.py touches."""
 
     def __init__(self, audio, sr):
+        self.available = True
         self._audio = audio
         self.sr = sr
         self.gain = 1.0

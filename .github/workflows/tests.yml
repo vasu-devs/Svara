@@ -3,11 +3,31 @@ name: Tests
 on:
   push:
     branches: [main]
-    paths: ["mywhisper/**", "tests/**", "config.yaml", ".github/workflows/tests.yml"]
+    paths: ["mywhisper/**", "tests/**", "web/**", "app_entry.py", "MyWhisper.spec", "config.yaml", "requirements.txt", "setup.bat", ".github/workflows/tests.yml"]
   pull_request:
-    paths: ["mywhisper/**", "tests/**", "config.yaml"]
+    paths: ["mywhisper/**", "tests/**", "web/**", "app_entry.py", "MyWhisper.spec", "config.yaml", "requirements.txt", "setup.bat", ".github/workflows/tests.yml"]
 
 jobs:
+  website:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        static-export: ["0", "1"]
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          GH_PAGES: ${{ matrix.static-export }}
+
   unit:
     # windows-latest on purpose: the install/autostart tests exercise the real
     # registry (HKCU, throwaway value names) and Windows path semantics.

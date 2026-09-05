@@ -282,6 +282,7 @@ scratchpad:
                               #   / transform, so a rewrite is always undoable
 
 ui:
+  reduced_motion: false    # static visualizers and immediate movement; also in Settings
   sounds: true                # beep on record start/stop
   tray: true                  # system tray icon with theme picker + toggles
   overlay: true               # on-screen "Listening…" pill with live mic level

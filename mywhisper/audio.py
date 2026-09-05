@@ -74,8 +74,10 @@ class Recorder:
         # mid-dictation can be recovered at next launch. ~64 KB/s.
         self._spill_path = None
         self._spill_q: queue.SimpleQueue = queue.SimpleQueue()
-        threading.Thread(target=self._spill_writer, daemon=True,
-                         name="audio-spill").start()
+        self._closed = False
+        self._spill_thread = threading.Thread(target=self._spill_writer, daemon=True,
+                                              name="audio-spill")
+        self._spill_thread.start()
 
     # -- crash-safe spill -----------------------------------------------------
 
@@ -90,6 +92,10 @@ class Recorder:
         fh = None
         while True:
             op, payload = self._spill_q.get()
+            if op == "quit":
+                if fh:
+                    fh.close()
+                return
             try:
                 if op == "open" and self._spill_path:
                     if fh:
@@ -136,6 +142,8 @@ class Recorder:
         armed. `ensure_alive()` picks it up within a few seconds, and the user
         gets a toast naming the device when it does.
         """
+        if self._closed:
+            return False
         try:
             if self._stream is None:
                 self._stream = self._make_stream()
@@ -146,15 +154,38 @@ class Recorder:
         except Exception:  # noqa: BLE001
             log.warning("%s microphone not available yet — retrying in the "
                         "background", E_AUDIO_DEV, exc_info=True)
-            self._stream = None
+            self._close_stream()
             return False
 
-    def close(self):
+    def _close_stream(self):
+        stream, self._stream = self._stream, None
+        if stream is None:
+            return
         try:
-            self._stream.stop()
-            self._stream.close()
+            stream.stop()
         except Exception:  # noqa: BLE001
             pass
+        try:
+            stream.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._close_stream()
+        with self._lock:
+            self._recording = False
+            self._spill_q.put(("quit", None))
+        self._spill_thread.join(timeout=2)
+
+    @property
+    def available(self) -> bool:
+        try:
+            return not self._closed and self._stream is not None and bool(self._stream.active)
+        except Exception:
+            return False
 
     def _candidates(self) -> list:
         """Devices to try, in policy order (see `audio_policy`)."""
@@ -210,6 +241,8 @@ class Recorder:
         then to any working input device — a dead mic must never mean
         silently dead dictation.
         """
+        if self._closed:
+            return False
         try:
             if self._stream is not None and self._stream.active:
                 self._retry_logged = False
@@ -224,11 +257,7 @@ class Recorder:
             log.warning("%s audio stream unavailable — reopening…", E_AUDIO_DEV)
         else:
             log.debug("audio stream still unavailable — retrying")
-        try:
-            if self._stream is not None:
-                self._stream.close()
-        except Exception:  # noqa: BLE001
-            pass
+        self._close_stream()
         try:
             # Re-query so a new default device (e.g. headset → laptop mic)
             # is picked up.
@@ -254,6 +283,7 @@ class Recorder:
                 return True
             except Exception as e:  # noqa: BLE001
                 log.debug("mic candidate %r failed: %s", cand, e)
+                self._close_stream()
         # Leaving a half-constructed stream here would make the next call
         # think one exists and try to .close() it forever.
         self._stream = None

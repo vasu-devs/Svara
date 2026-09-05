@@ -1,11 +1,11 @@
-# Shipping MyWhisper
+# Shipping Svara
 
 ## Pre-flight
 
 Run these before every release. Each one has caught something real.
 
 ```bat
-.venv\Scripts\python.exe -m unittest discover -s tests -q   :: 373 tests, ~35s
+.venv\Scripts\python.exe -m unittest discover -s tests -q   :: 547 tests at v0.7.0
 run.bat --bench                                             :: exit 0/2/3
 cd web && npm run build                                     :: the site compiles
 ```
@@ -25,10 +25,11 @@ cd web && npm run build                                     :: the site compiles
 ```bat
 set MYWHISPER_CPU=1
 set MYWHISPER_ONEFILE=1
+set PYTHONNOUSERSITE=1
 .venv\Scripts\python.exe -m PyInstaller --noconfirm --clean MyWhisper.spec
 ```
 
-Produces **`dist\Svara.exe`** (~108 MB): a single download-and-run exe with a
+Produces **`dist\Svara.exe`** (~111 MB at v0.7.0): a single download-and-run exe with a
 branded splash screen. No CUDA bundled — if an NVIDIA GPU is present, the
 first-run setup downloads `cuda-runtime.zip` (~1.3 GB) from the GitHub release
 on demand.
@@ -45,6 +46,11 @@ Look for `Model ready`, `Hotkey armed`, `quick shortcuts armed` and no
 window, so this leaves nothing behind (delete `dist\logs`, `dist\config*.yaml`
 and `dist\state.json` afterwards).
 
+If another installed instance is already running, leave it undisturbed. Run
+`Svara.exe --portable --doctor --cpu` to verify the packaged runtime and cached
+model without taking the microphone or hotkeys; inspect `logs\mywhisper.log` and
+its exit code. Record that interactive packaged dictation was not retested.
+
 ## Publish
 
 **Rename to the version first.** Re-uploading to a URL that already exists —
@@ -53,16 +59,27 @@ serving the old binary from that URL indefinitely, so a user's "fresh download"
 is silently stale. A new version number is a genuinely new URL.
 
 ```bat
-copy dist\Svara.exe dist\Svara-0.5.0.exe
-gh release upload v0.1.0 dist\Svara-0.5.0.exe
+copy dist\Svara.exe dist\Svara-0.7.0.exe
+git tag -a v0.7.0 -m "Svara v0.7.0"
+git push origin v0.7.0
+gh release create v0.7.0 dist\Svara-0.7.0.exe dist\SHA256SUMS.txt --verify-tag --draft --title "Svara v0.7.0" --notes-file releases\v0.7.0.md
+gh release edit v0.7.0 --draft=false --latest
+git push origin main
 ```
 
-**Upload the asset BEFORE pushing.** The site's download button and the
+Use a fresh version tag for each release. Before these commands, update the
+source/site version and size, prepare the notes and SHA-256 checksum, and commit
+all release changes. Verify the draft's uploaded assets before publishing it.
+The tag push makes the exact commit available without deploying the main-branch site.
+
+**Publish the asset BEFORE pushing main.** The site's download button and the
 in-app auto-updater both start looking the moment the new code is live; if the
 asset is not there yet they 404 for real users.
 
-Then update `DOWNLOAD` in [`web/app/page.tsx`](web/app/page.tsx) to the new
-filename, push, and the Pages workflow redeploys the site.
+The site's `DOWNLOAD` in [`web/app/page.tsx`](web/app/page.tsx) derives its tagged
+URL from `VERSION`. Check the Tests and Pages workflows after pushing main and
+verify the public site and download. Keep the existing v0.1.0 CUDA runtime asset:
+the optional GPU installer still uses its stable URL.
 
 **The auto-updater** polls `releases/latest` and picks the highest-versioned
 `Svara-*.exe` asset. It downloads quietly and applies only when the user clicks

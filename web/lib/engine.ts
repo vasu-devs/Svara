@@ -1,6 +1,7 @@
-/* Svara visualizer engine — "ink on paper" edition. Ribbons render as soft,
-   multiply-blended silk on a warm page; six moods recolor the whole site via
-   CSS custom properties (--accent/--c1/--c2/--c3/--tint/--tint2/--paper/--panel). */
+/* Svara visualizer engine. Strands render as soft, multiply-blended ink on the
+   bone page; on the dark pill they are lifted toward white instead. Six moods
+   recolor the accent only (--accent/--c1/--c2/--c3/--tint) - the page ground
+   never changes, so a mood is a highlight, not a different site. */
 
 export type Mood = { key: string; name: string; accent: string; cols: [string, string, string] };
 
@@ -28,16 +29,15 @@ function mix(hex: string, base: string, amt: number): string {
   return `rgb(${r[0]},${r[1]},${r[2]})`;
 }
 
-/** Recolor the whole page for a mood — mirrors the design's applyTheme(). */
+/** Recolor the accent for a mood. The page ground stays put on purpose. */
 export function applyMood(key: string) {
   const m = MOODS[key] || MOODS.sienna;
   const d = document.documentElement.style;
   d.setProperty("--accent", m.accent);
   d.setProperty("--c1", m.cols[0]); d.setProperty("--c2", m.cols[1]); d.setProperty("--c3", m.cols[2]);
-  d.setProperty("--tint", hexRgba(m.accent, 0.22));
-  d.setProperty("--tint2", hexRgba(m.cols[0], 0.17));
-  d.setProperty("--paper", mix(m.accent, "#ece3d0", 0.16));
-  d.setProperty("--panel", mix(m.accent, "#faf5ec", 0.07));
+  d.setProperty("--tint", hexRgba(m.accent, 0.16));
+  d.setProperty("--tint-soft", hexRgba(m.accent, 0.08));
+  requestDraw();
 }
 
 const TAU = Math.PI * 2;
@@ -55,39 +55,58 @@ function rootCols(): [string, string, string] {
   ];
 }
 
-type Node = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; style: () => Style; visible: () => boolean; hero?: boolean; w: number; h: number };
+type Node = { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D; style: () => Style; visible: () => boolean; hero?: boolean; onDark?: boolean; w: number; h: number };
 const nodes = new Set<Node>();
-let running = false;
+let frameId = 0;
+export function requestDraw() {
+  if (!frameId && nodes.size && !document.hidden) frameId = requestAnimationFrame(loop);
+}
 
 function fit(n: Node) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const w = n.canvas.clientWidth || n.canvas.width, h = n.canvas.clientHeight || n.canvas.height;
+  const w = n.canvas.clientWidth, h = n.canvas.clientHeight;
   n.canvas.width = Math.max(1, w * dpr); n.canvas.height = Math.max(1, h * dpr);
   n.ctx.setTransform(dpr, 0, 0, dpr, 0, 0); n.w = w; n.h = h;
 }
-export function register(canvas: HTMLCanvasElement, style: () => Style, visible: () => boolean, hero = false) {
-  const ctx = canvas.getContext("2d")!;
-  const n: Node = { canvas, ctx, style, visible, hero, w: 0, h: 0 };
+export function register(canvas: HTMLCanvasElement, style: () => Style, visible: () => boolean, hero = false, onDark = false) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return () => {};
+  const n: Node = { canvas, ctx, style, visible, hero, onDark, w: 0, h: 0 };
   fit(n); nodes.add(n);
-  if (!running) { running = true; requestAnimationFrame(loop); }
-  const onResize = () => fit(n);
-  window.addEventListener("resize", onResize);
-  return () => { nodes.delete(n); window.removeEventListener("resize", onResize); };
+  requestDraw();
+  const onResize = () => { fit(n); requestDraw(); };
+  const ro = new ResizeObserver(onResize);
+  ro.observe(canvas);
+  const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+  motion.addEventListener("change", requestDraw);
+  document.addEventListener("visibilitychange", requestDraw);
+  return () => {
+    nodes.delete(n); ro.disconnect();
+    motion.removeEventListener("change", requestDraw);
+    document.removeEventListener("visibilitychange", requestDraw);
+    if (!nodes.size) { cancelAnimationFrame(frameId); frameId = 0; }
+  };
 }
 function envelope(t: number) {
   target = speaking > t ? 0.42 + 0.36 * Math.abs(Math.sin(t / 150)) * (0.62 + 0.38 * Math.sin(t / 47)) : 0.15 + 0.06 * Math.sin(t / 1100);
   level += (target - level) * 0.06; return level;
 }
 function loop(t: number) {
-  const lv = envelope(t);
+  frameId = 0;
+  if (document.hidden) return;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const lv = reduced ? 0.25 : envelope(t);
   const gc = rootCols();
-  nodes.forEach((n) => { if (n.visible()) { n.ctx.clearRect(0, 0, n.w, n.h); draw(n, t, lv, gc); } });
-  if (nodes.size) requestAnimationFrame(loop); else running = false;
+  let visible = false;
+  nodes.forEach((n) => { if (n.visible()) { visible = true; n.ctx.clearRect(0, 0, n.w, n.h); draw(n, reduced ? 0 : t, lv, gc); } });
+  if (visible && !reduced) requestDraw();
 }
 function disc(c: CanvasRenderingContext2D, x: number, y: number, r: number, s: string) { c.beginPath(); c.arc(x, y, r, 0, TAU); c.fillStyle = s; c.fill(); }
 
-function draw(n: Node, t: number, lv: number, cols: [string, string, string]) {
+function draw(n: Node, t: number, lv: number, base: [string, string, string]) {
   const { ctx, w, h } = n, mid = h / 2, sc = h / 56;
+  // On the dark pill, multiply-blending would vanish; lift the strands instead.
+  const cols = n.onDark ? (base.map((c) => mix(c, "#ffffff", 0.72)) as [string, string, string]) : base;
   const col = (i: number) => cols[i % 3];
   const style = n.style();
   const rich = !!n.hero; // hero panels get more strands + softer bloom
@@ -104,7 +123,7 @@ function draw(n: Node, t: number, lv: number, cols: [string, string, string]) {
       ctx.beginPath();
       for (let j = 0; j <= 52; j++) { const u = j / 52, env = Math.pow(Math.sin(Math.PI * u), 0.82); const y = mid + env * (amp * ys * 0.72 * Math.sin(7.1 * u + ph1) + amp * ys * 0.44 * Math.sin(11.3 * u - ph2)); j ? ctx.lineTo(u * w, y) : ctx.moveTo(u * w, y); }
       ctx.strokeStyle = c;
-      ctx.globalCompositeOperation = "multiply";
+      ctx.globalCompositeOperation = n.onDark ? "screen" : "multiply";
       ctx.globalAlpha = rich ? 0.17 : 0.2; ctx.lineWidth = (rich ? 7 : 5) * (0.6 + h / 260); ctx.stroke();
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = rich ? 0.5 : 0.62; ctx.lineWidth = 1.3; ctx.stroke();

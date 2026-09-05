@@ -228,7 +228,7 @@ def _build_history(root, app):
     top.pack(fill="x", padx=16, pady=(14, 6))
     tk.Label(top, text="HISTORY", bg=BG, fg=SUB,
              font=("Segoe UI", 9, "bold")).pack(side="left")
-    q_var = tk.StringVar()
+    q_var = tk.StringVar(master=top)
     q_entry = tk.Entry(top, textvariable=q_var, bg=CARD, fg=FG, relief="flat",
                        insertbackground=ACCENT, font=("Segoe UI", 10))
     q_entry.pack(side="right", fill="x", expand=True, padx=(12, 0),
@@ -841,7 +841,7 @@ def _build(root, app, first_run=False):
         tk.Label(row, text=label_text, bg=BG, fg=SUB, width=9, anchor="w",
                  font=("Segoe UI", 9, "bold")).pack(side="left")
         labels = {v: lbl for v, lbl in options}
-        var = tk.StringVar(value=labels.get(current, options[0][1]))
+        var = tk.StringVar(master=row, value=labels.get(current, options[0][1]))
 
         def _pick(label):
             value = next((v for v, lbl in options if lbl == label), None)
@@ -947,7 +947,7 @@ def _build(root, app, first_run=False):
     row.pack(fill="x", pady=3)
     tk.Label(row, text="Dictionary", bg=BG, fg=SUB, width=9, anchor="w",
              font=("Segoe UI", 9, "bold")).pack(side="left")
-    word_var = tk.StringVar()
+    word_var = tk.StringVar(master=row)
     word_entry = tk.Entry(row, textvariable=word_var, bg=CARD, fg=FG,
                           relief="flat", insertbackground=ACCENT,
                           font=("Segoe UI", 10), width=22)
@@ -987,7 +987,7 @@ def _build(root, app, first_run=False):
         row.pack(fill="x", pady=3)
         tk.Label(row, text="Startup", bg=BG, fg=SUB, width=9, anchor="w",
                  font=("Segoe UI", 9, "bold")).pack(side="left")
-        auto_var = tk.BooleanVar(value=bool(getattr(app, "autostart_enabled",
+        auto_var = tk.BooleanVar(master=row, value=bool(getattr(app, "autostart_enabled",
                                                     False)))
 
         def _toggle_autostart():

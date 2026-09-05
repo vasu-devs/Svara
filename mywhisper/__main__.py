@@ -207,6 +207,10 @@ def main() -> int:
             import json
 
             saved = json.loads(sp.read_text(encoding="utf-8"))
+            if not isinstance(saved, dict):
+                raise ValueError("saved state must be a mapping")
+            if isinstance(saved.get("reduced_motion"), bool):
+                cfg["ui"]["reduced_motion"] = saved["reduced_motion"]
             if saved.get("theme"):
                 cfg["ui"]["theme"] = saved["theme"]
             if saved.get("wave"):

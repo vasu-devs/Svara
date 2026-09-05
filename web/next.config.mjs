@@ -5,6 +5,10 @@ const isGh = process.env.GH_PAGES === "1";
 
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_STATIC_EXPORT: isGh ? "1" : "0",
+    NEXT_PUBLIC_BASE_PATH: isGh ? "/Svara" : "",
+  },
   // Server routes are named `*.node.ts` and are only treated as routes when we
   // are NOT exporting. A static export cannot contain a dynamic route handler
   // at all - Next fails the whole build with "cannot be used with output:

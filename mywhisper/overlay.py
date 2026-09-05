@@ -33,7 +33,7 @@ from .themes import get_theme
 log = logging.getLogger(__name__)
 
 try:
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
     _HAS_PIL = True
 except ImportError:
@@ -46,7 +46,7 @@ _SS = 2  # supersampling factor (2× + DPI-aware = crisp; 3× starved the
          # keyboard hook of GIL time and lagged system-wide input)
 
 WAVES = ["strings", "spectrum", "bars", "scope", "pulse", "particles",
-         "beam", "pixels"]
+         "beam", "pixels", "orbit", "ribbon"]
 BGS = ["gradient", "solid", "aurora", "carbon", "nebula",
        "rain", "aura", "petals", "synthwave", "invaders"]
 
@@ -246,6 +246,7 @@ class Overlay:
         self._bg = ui_cfg.get("bg", "gradient")
         self._pill_width = int(ui_cfg.get("pill_width", 180))
         self._expanded = False
+        self._preview = ""
         self._egg = None         # {"kind": n, "t0": frame} while an egg plays
         self._egg_n = 0
         pos = ui_cfg.get("pos")
@@ -260,6 +261,7 @@ class Overlay:
         self._scale = float(ui_cfg.get("scale", 1.0))
         self._q: queue.Queue = queue.Queue()
         self._display_level = 0.0
+        self._reduced_motion = bool(ui_cfg.get("reduced_motion", False))
         if self.enabled:
             self._thread = threading.Thread(
                 target=self._run, daemon=True, name="overlay"
@@ -273,7 +275,8 @@ class Overlay:
             self._q.put(("show", state))
 
     def set_preview(self, text: str):
-        pass  # the compact visual shows no text
+        if self.enabled:
+            self._q.put(("preview", text))
 
     def flash_done(self, text: str):
         if self.enabled:
@@ -295,6 +298,10 @@ class Overlay:
         if self.enabled:
             self._q.put(("bg", name))
 
+    def set_reduced_motion(self, enabled: bool):
+        if self.enabled:
+            self._q.put(("motion", enabled))
+
     def stop(self):
         if self.enabled:
             self._q.put(("quit", None))
@@ -308,8 +315,9 @@ class Overlay:
         return int(self._EGG_PAD * self._scale) if self._egg else 0
 
     def _dims(self) -> tuple[int, int]:
-        w = int(self._pill_width * self._scale)
-        return w, int(40 * self._scale) + self._egg_pad()
+        w = int(max(self._pill_width, 360 if self._preview else 0) * self._scale)
+        h = 86 if self._preview else 40
+        return w, int(h * self._scale) + self._egg_pad()
 
     # -- static pill body (cached) -------------------------------------------------
 
@@ -336,7 +344,7 @@ class Overlay:
         img = Image.alpha_composite(img, sh)
         d = ImageDraw.Draw(img)
         body = (2 * _SS, P + 1 * _SS, W - 2 * _SS, H - 5 * _SS)
-        radius = (body[3] - body[1]) // 2
+        radius = min((body[3] - body[1]) // 2, int(18 * self._scale * _SS))
         d.rounded_rectangle(body, radius=radius,
                             fill=_rgba(_darken(self._theme["bg"], 0.30), 242),
                             outline=_rgba(self._theme["border"], 255),
@@ -409,6 +417,40 @@ class Overlay:
         return self._masked(strip.crop((off, 0, off + W, H)))
 
     # -- visualizer styles (all drawn at _SS scale) ---------------------------------
+
+    def _wave_orbit(self, d, mid, x0, x1, lv, frame, colors):
+        """Three elliptical trails with voice-reactive satellites."""
+        sc = self._scale * _SS
+        cx = (x0 + x1) / 2
+        for i, c in enumerate(colors):
+            rx = (x1 - x0) * (0.27 + 0.055 * i)
+            ry = (3 + 7 * lv + i * 1.4) * sc
+            phase = frame * 0.075 + i * math.tau / len(colors)
+            pts = [(cx + rx * math.cos(phase + j / 40 * math.tau),
+                    mid + ry * math.sin(phase + j / 40 * math.tau))
+                   for j in range(41)]
+            d.line(pts, fill=_rgba(c, 95), width=max(1, int(sc)), joint="curve")
+            for j in range(10):
+                a = phase - j * 0.1
+                px, py = cx + rx * math.cos(a), mid + ry * math.sin(a)
+                r = (2.1 - j * 0.13) * sc
+                d.ellipse((px-r, py-r, px+r, py+r),
+                          fill=_rgba(c, int(245 * (1 - j / 11))))
+
+    def _wave_ribbon(self, d, mid, x0, x1, lv, frame, colors):
+        """Layered silk ribbons; bounded geometry keeps rendering inexpensive."""
+        sc = self._scale * _SS
+        for i, c in enumerate(colors):
+            top, bottom = [], []
+            for j in range(49):
+                u = j / 48
+                env = math.sin(math.pi * u)
+                y = mid + env * (3 + 9 * lv) * sc * math.sin(u * 8 - frame * 0.09 + i)
+                thick = env * (1 + 2 * lv) * sc
+                top.append((x0 + u * (x1-x0), y-thick))
+                bottom.append((x0 + u * (x1-x0), y+thick))
+            d.polygon(top + bottom[::-1], fill=_rgba(c, 100))
+            d.line(top, fill=_rgba(c, 225), width=max(1, int(sc)), joint="curve")
 
     def _wave_strings(self, d, mid, x0, x1, lv, frame, colors):
         span = x1 - x0
@@ -757,6 +799,8 @@ class Overlay:
                               fill=(15, 18, 24, 255))
 
     def _render_frame(self, frame: int, state: str, w: int, h: int):
+        if self._reduced_motion:
+            frame = 0
         t = self._theme
         W, H = w * _SS, h * _SS
         pad = self._egg_pad()
@@ -784,6 +828,29 @@ class Overlay:
         d = ImageDraw.Draw(layer)
         expanded = False  # (superseded by the easter egg — body click pops it)
         mid = P + (H - P - 4 * _SS) / 2 + 1 * _SS
+        if self._preview:
+            mid = P + 19 * self._scale * _SS
+            font_size = max(10, int(11 * self._scale * _SS))
+            if getattr(self, "_caption_font_size", None) != font_size:
+                try:
+                    self._caption_font = ImageFont.truetype("segoeui.ttf", font_size)
+                except OSError:
+                    self._caption_font = ImageFont.load_default()
+                self._caption_font_size = font_size
+            # Display a bounded rolling caption. It never touches the log or
+            # clipboard, and all text is cleared when recording finishes.
+            margin = int(18 * self._scale * _SS)
+            max_width = max(1, W - margin * 2)
+            lines, line = [], ""
+            for char in " ".join(self._preview.split())[-240:]:
+                if line and d.textlength(line + char, font=self._caption_font) > max_width:
+                    lines.append(line)
+                    line = ""
+                line += char
+            lines.append(line)
+            for index, text in enumerate(lines[-2:]):
+                d.text((margin, P + (39 + index * 16) * self._scale * _SS),
+                       text, font=self._caption_font, fill=_rgba(t["text"], 245))
 
         if self._egg and state in ("listening", "locked") and P:
             self._draw_egg(d, W, P, frame - self._egg["t0"], bg_colors)
@@ -797,7 +864,7 @@ class Overlay:
                       fill=_rgba(color, 45))
             d.ellipse((cx - r, mid - r, cx + r, mid + r), fill=_rgba(color, 255))
 
-            lv = max(0.0, min(1.0, self._display_level))
+            lv = 0.25 if self._reduced_motion else max(0.0, min(1.0, self._display_level))
             colors = bg_colors
             x0 = int(34 * self._scale) * _SS
             x1 = W - int(64 * self._scale) * _SS  # room for the buttons
@@ -915,6 +982,8 @@ class Overlay:
                         if self._on_click:
                             self._on_click()          # ● dot: finish & vanish
                     else:
+                        if self._reduced_motion:
+                            return
                         # 🥚 easter egg! something fun pops out of the top
                         fresh = self._egg is None
                         self._egg = {"kind": self._egg_n % 3, "t0": self._frame}
@@ -1086,12 +1155,20 @@ class Overlay:
 
                 pl(0, 0, w - 2, h - 3, t["border"])
                 pl(1, 1, w - 3, h - 4, _darken(t["bg"], 0.30))
+                mid = 19 * self._scale if self._preview else h / 2
+                if self._preview:
+                    canvas.create_text(w / 2, 42 * self._scale,
+                                       text=self._preview[-120:], anchor="n",
+                                       width=w - 36 * self._scale,
+                                       font=("Segoe UI", max(8, int(10 * self._scale))),
+                                       fill=t["text"])
                 if self._state in ("listening", "locked"):
                     color = t["dot"] if self._state == "listening" else t["accent"]
                     dr = 4.5 * self._scale
-                    canvas.create_oval(18 - dr, h / 2 - dr, 18 + dr, h / 2 + dr,
+                    canvas.create_oval(18 - dr, mid - dr, 18 + dr, mid + dr,
                                        fill=color, outline=color)
-                    lv = max(0.0, min(1.0, self._display_level))
+                    lv = 0.25 if self._reduced_motion else max(0.0, min(1.0, self._display_level))
+                    phase = 0 if self._reduced_motion else self._frame
                     x0, x1 = int(34 * self._scale), w - int(48 * self._scale)
                     amp = (2.2 + 12.5 * lv) * self._scale
                     for si, c in enumerate(t.get("strings")
@@ -1100,9 +1177,9 @@ class Overlay:
                         for j in range(31):
                             u = j / 30
                             env = math.sin(math.pi * u)
-                            y = h / 2 + env * (
-                                amp * 0.72 * math.sin(9.4 * u + self._frame * 0.17 + si * 2.1)
-                                + amp * 0.5 * math.sin(14.6 * u - self._frame * 0.11 - si * 1.4))
+                            y = mid + env * (
+                                amp * 0.72 * math.sin(9.4 * u + phase * 0.17 + si * 2.1)
+                                + amp * 0.5 * math.sin(14.6 * u - phase * 0.11 - si * 1.4))
                             pts += [x0 + u * (x1 - x0), y]
                         canvas.create_line(*pts, fill=c, width=2, smooth=True,
                                            capstyle="round")
@@ -1112,6 +1189,7 @@ class Overlay:
                     return
                 self._state = state
                 if state == "hidden":
+                    self._preview = ""
                     self._alpha_target = 0.0
                     self._y_target = self._y + 8 * self._scale
                 else:
@@ -1137,6 +1215,9 @@ class Overlay:
                             set_state(arg)
                         elif cmd == "hide":
                             set_state("hidden")
+                        elif cmd == "preview":
+                            if self._state in ("listening", "locked"):
+                                self._preview = str(arg or "")[-240:]
                         elif cmd == "theme":
                             self._theme = get_theme(arg, self._overrides)
                             self._base_key = None
@@ -1145,11 +1226,22 @@ class Overlay:
                         elif cmd == "bg":
                             self._bg = arg
                             self._base_key = None
+                        elif cmd == "motion":
+                            self._reduced_motion = bool(arg)
+                            gp = self._egg_pad()
+                            self._egg = None
+                            self._y += gp
+                            self._y_target += gp
+                            self._base_key = None
                         elif cmd == "quit":
                             root.destroy()
                             return
                 except queue.Empty:
                     pass
+
+                if self._reduced_motion:
+                    self._alpha = self._alpha_target
+                    self._x, self._y = self._x_target, self._y_target
 
                 if abs(self._alpha - self._alpha_target) > 0.01:
                     self._alpha += (self._alpha_target - self._alpha) * _EASE
@@ -1177,8 +1269,9 @@ class Overlay:
                     # expand/collapse: ease the pill size toward its target
                     wt, ht = self._dims()
                     if abs(self._wcur - wt) > 1 or abs(self._hcur - ht) > 1:
-                        self._wcur += (wt - self._wcur) * 0.38
-                        self._hcur += (ht - self._hcur) * 0.38
+                        size_ease = 1 if self._reduced_motion else 0.38
+                        self._wcur += (wt - self._wcur) * size_ease
+                        self._hcur += (ht - self._hcur) * size_ease
                         root.geometry(f"{int(self._wcur)}x{int(self._hcur)}"
                                       f"+{int(self._x)}+{int(self._y)}")
                         canvas.configure(width=int(self._wcur),

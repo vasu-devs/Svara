@@ -29,6 +29,13 @@ focus moves: if the user alt-tabs while Svara is transcribing, the text still
 gets the formatting and injection strategy of the app they were actually
 dictating into.
 
+The captured value now travels in the recording's stream/queue context.
+Finalization and live-commit bookkeeping share `_stop_lock`. A new recording
+waits until the previous final pass completes, keeping the model's mutable
+prompt, recovery file, and history metadata owned by one dictation at a time.
+Delayed stop callbacks also carry the recording identity so cancelled timers
+cannot terminate a later recording.
+
 ---
 
 ## Module map
@@ -158,7 +165,7 @@ Two rules that are easy to break:
 .venv\Scripts\python.exe -m unittest discover -s tests -q
 ```
 
-273 tests, ~17 s. `tests/test_livepath.py` loads a real model and runs audio
+More than 540 tests. `tests/test_livepath.py` loads a real model and runs audio
 through the real streaming path; everything else is pure and fast.
 
 | Suite | Covers |

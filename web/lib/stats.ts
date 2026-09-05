@@ -104,6 +104,7 @@ export type VisitStats = { visits: number; unique: number };
  */
 export async function recordVisit(): Promise<VisitStats | null> {
   if (typeof window === "undefined") return null;
+  if (process.env.NEXT_PUBLIC_STATIC_EXPORT === "1") return null;
   try {
     const base = process.env.NEXT_PUBLIC_BASE_PATH ?? "";
     const res = await fetch(`${base}/api/visits`, { method: "POST" });

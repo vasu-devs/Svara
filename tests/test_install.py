@@ -49,9 +49,11 @@ class InstallTestBase(unittest.TestCase):
         self._patches.append(sp)
 
     def tearDown(self):
+        # Cleanup while APP_NAME and LOCALAPPDATA still point to the fixture.
+        # Restoring them first removed the user's real Svara autostart entry.
+        install.set_autostart(False)
         for p in self._patches:
             p.stop()
-        install.set_autostart(False)  # in case a test registered the key
         self._delete_test_run_value()
         shutil.rmtree(self.tmp, ignore_errors=True)
 

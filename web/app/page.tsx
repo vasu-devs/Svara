@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Visualizer } from "@/components/Visualizer";
+import { DictationDemo } from "@/components/DictationDemo";
 import { MOODS, MOOD_ORDER, applyMood, speak, setPointer, type Style } from "@/lib/engine";
 import { fetchReleaseStats, recordVisit, type VisitStats } from "@/lib/stats";
 
@@ -12,9 +13,9 @@ import { fetchReleaseStats, recordVisit, type VisitStats } from "@/lib/stats";
 // so a "fresh download" can never silently be a stale one.
 // Single source of truth: the label and the URL are built from the same
 // constant, so the page can never advertise one version and serve another.
-const VERSION = "0.6.1";
-const SIZE_MB = 103;
-const DOWNLOAD = `https://github.com/vasu-devs/Svara/releases/download/v0.1.0/Svara-${VERSION}.exe`;
+const VERSION = "0.7.0";
+const SIZE_MB = 111;
+const DOWNLOAD = `https://github.com/vasu-devs/Svara/releases/download/v${VERSION}/Svara-${VERSION}.exe`;
 const GITHUB = "https://github.com/vasu-devs/Svara";
 
 const SPY = [
@@ -48,7 +49,7 @@ const STATS = [
   { shown: "0", count: 0, suffix: "", label: "bytes uploaded", accent: false },
   { shown: "~1s", count: null, suffix: "", label: "spoken to written", accent: true },
   { shown: "90", count: 90, suffix: "+", label: "languages", accent: false },
-  { shown: "8", count: 8, suffix: "", label: "live visualisers", accent: false },
+  { shown: "10", count: 10, suffix: "", label: "live visualisers", accent: false },
 ];
 
 /** The last slot goes live once GitHub answers with the real download count.
@@ -97,7 +98,7 @@ function Magnetic({ children, s = 0.3 }: { children: React.ReactNode; s?: number
   const ref = useRef<HTMLSpanElement>(null);
   return (
     <span ref={ref} className="mag"
-      onPointerMove={(e) => { const el = ref.current; if (!el) return; const r = el.getBoundingClientRect(); el.style.transform = `translate(${(e.clientX - r.left - r.width / 2) * s}px,${(e.clientY - r.top - r.height / 2) * s}px)`; }}
+      onPointerMove={(e) => { const el = ref.current; if (!el || e.pointerType !== "mouse" || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return; const r = el.getBoundingClientRect(); el.style.transform = `translate(${(e.clientX - r.left - r.width / 2) * s}px,${(e.clientY - r.top - r.height / 2) * s}px)`; }}
       onPointerLeave={() => { if (ref.current) ref.current.style.transform = "translate(0,0)"; }}>
       {children}
     </span>
@@ -107,21 +108,24 @@ function Magnetic({ children, s = 0.3 }: { children: React.ReactNode; s?: number
 /* ---------- count-up stat ---------- */
 function CountStat({ shown, count, suffix, label, accent }: { shown: string; count: number | null; suffix: string; label: string; accent: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [text, setText] = useState(count === null ? shown : "0" + suffix);
+  const [text, setText] = useState(shown + suffix);
   useEffect(() => {
+    setText(shown + suffix);
     if (count === null) return;
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) { setText(shown + suffix); return; }
     const el = ref.current; if (!el) return;
+    let frame = 0;
     let done = false;
     const run = () => {
       if (done) return; done = true;
       const dur = 1150, st = performance.now();
-      const step = (t: number) => { const p = Math.min(1, (t - st) / dur), e = 1 - Math.pow(1 - p, 3); setText(Math.round(count * e) + suffix); if (p < 1) requestAnimationFrame(step); };
-      requestAnimationFrame(step);
+      const step = (t: number) => { const p = Math.min(1, (t - st) / dur), e = 1 - Math.pow(1 - p, 3); setText(Math.round(count * e) + suffix); if (p < 1) frame = requestAnimationFrame(step); };
+      frame = requestAnimationFrame(step);
     };
     const io = new IntersectionObserver((es) => { if (es[0].isIntersecting) { run(); io.disconnect(); } }, { threshold: 0.2 });
     io.observe(el);
-    return () => io.disconnect();
-  }, [count, suffix]);
+    return () => { io.disconnect(); cancelAnimationFrame(frame); };
+  }, [count, suffix, shown]);
   return (
     <div className="stat" ref={ref}>
       <div className="n" style={accent ? { color: "var(--accent)", fontStyle: "italic", transition: "color .6s" } : undefined}>{text}</div>
@@ -133,11 +137,15 @@ function CountStat({ shown, count, suffix, label, accent }: { shown: string; cou
 /* ---------- draggable hero pill ---------- */
 function HeroPill() {
   const ref = useRef<HTMLDivElement>(null);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  function clearTimers() { timers.current.forEach(clearTimeout); timers.current = []; }
+  useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
   const drag = useRef({ on: false, ox: 0, oy: 0, px: 0, py: 0, vx: 0, vy: 0, lx: 0, ly: 0 });
   return (
     <div className="hero-pill" ref={ref}
       onPointerDown={(e) => {
         const el = ref.current; if (!el) return;
+        clearTimers();
         try { el.setPointerCapture(e.pointerId); } catch { /* noop */ }
         const d = drag.current;
         d.on = true; el.style.animation = "none"; el.style.transition = "none";
@@ -145,7 +153,7 @@ function HeroPill() {
       }}
       onPointerMove={(e) => {
         const el = ref.current; const d = drag.current; if (!el || !d.on) return;
-        d.px = e.clientX - d.ox; d.py = e.clientY - d.oy;
+        d.px = Math.max(-80, Math.min(80, e.clientX - d.ox)); d.py = Math.max(-55, Math.min(55, e.clientY - d.oy));
         d.vx = e.clientX - d.lx; d.vy = e.clientY - d.ly; d.lx = e.clientX; d.ly = e.clientY;
         const tilt = Math.max(-9, Math.min(9, d.vx));
         el.style.transform = `translate(${d.px}px,${d.py}px) rotate(${tilt}deg)`;
@@ -157,11 +165,15 @@ function HeroPill() {
         d.px += d.vx * 5; d.py += d.vy * 5;
         el.style.transition = "transform .55s cubic-bezier(.16,.9,.3,1)";
         el.style.transform = `translate(${d.px}px,${d.py}px) rotate(0deg)`;
-        setTimeout(() => {
+        timers.current.push(setTimeout(() => {
           el.style.transition = "transform 1.15s cubic-bezier(.19,1,.22,1)";
           d.px = 0; d.py = 0; el.style.transform = "translate(0,0) rotate(0deg)";
-          setTimeout(() => { if (!d.on) el.style.animation = "floaty 5.5s ease-in-out infinite"; }, 1150);
-        }, 160);
+          timers.current.push(setTimeout(() => { if (!d.on) el.style.animation = "floaty 5.5s ease-in-out infinite"; }, 1150));
+        }, 160));
+      }}
+      onPointerCancel={() => {
+        clearTimers(); drag.current.on = false; drag.current.px = 0; drag.current.py = 0;
+        if (ref.current) { ref.current.style.transform = ""; ref.current.style.transition = ""; ref.current.style.animation = ""; }
       }}>
       <span className="dot" />
       <Visualizer style="bars" className="pill-viz" />
@@ -208,7 +220,7 @@ export default function Page() {
 
   // feature auto-rotate
   useEffect(() => {
-    const iv = setInterval(() => { if (!featHover.current) { setFeat((f) => (f + 1) % FEATURES.length); speak(900); } }, 3400);
+    const iv = setInterval(() => { if (!featHover.current && !document.hidden && !window.matchMedia("(prefers-reduced-motion: reduce)").matches && !document.activeElement?.closest(".feat-grid")) { setFeat((f) => (f + 1) % FEATURES.length); speak(900); } }, 3400);
     return () => clearInterval(iv);
   }, []);
 
@@ -233,6 +245,7 @@ export default function Page() {
 
   return (
     <>
+      <a className="skip-link" href="#top">Skip to content</a>
       <div className="ripple-layer" aria-hidden />
       <div className="bg-glow" aria-hidden />
       <div className="bg-staff" aria-hidden />
@@ -297,13 +310,13 @@ export default function Page() {
               onPointerMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); setPointer((e.clientX - r.left) / r.width, 1); }}
               onPointerLeave={() => setPointer(0.5, 0)}>
               <div className="hero-grid"><div /><div /><div /><div /></div>
-              <span className="hero-tag l"><span className="dot-live" />Live signal</span>
+              <span className="hero-tag l"><span className="dot-live" />Signal preview</span>
               <span className="hero-tag r">Interactive</span>
               <Visualizer style="strings" hero className="wave-viz" />
               <HeroPill />
             </div>
             <div className="hero-panel-foot">
-              <span className="hint">↳ drawn live as you speak</span>
+              <span className="hint">↳ drag the pill · explore the colours</span>
               <div className="mood-row">
                 <span className="lbl">Mood</span>
                 <div className="swatches">
@@ -313,6 +326,8 @@ export default function Page() {
             </div>
           </div>
         </section>
+
+        <DictationDemo />
 
         {/* MARQUEE */}
         <div className="marquee" aria-hidden>
@@ -425,14 +440,14 @@ export default function Page() {
           <div className="cta-in">
             <Reveal><span className="eyebrow">Op. 05 · Get Svara</span></Reveal>
             <Reveal delay={0.05}><h2>Speak it. Ship it. <em>Free.</em></h2></Reveal>
-            <Reveal delay={0.1}><p className="cta-lede">One 110 MB download that just runs. No installer, no account, no GPU required. The model downloads once, then it works fully offline.</p></Reveal>
+            <Reveal delay={0.1}><p className="cta-lede">One download to get started. No account or GPU required. Svara installs itself, downloads your speech model once, then works offline.</p></Reveal>
             <Reveal delay={0.14}>
               <div className="cta-actions">
                 <Magnetic s={0.3}><a className="btn btn-dark" href={DOWNLOAD}><span>Download Svara.exe</span><span className="btn-ico"><DownloadIcon /></span></a></Magnetic>
                 <a className="btn btn-dark-ghost" href={GITHUB} target="_blank" rel="noopener">Star on GitHub</a>
               </div>
             </Reveal>
-            <Reveal delay={0.18}><p className="cta-note">~110 MB · Windows 10 / 11 · download and run · NVIDIA GPU support downloads automatically on first launch</p></Reveal>
+            <Reveal delay={0.18}><p className="cta-note">~{SIZE_MB} MB · Windows 10 / 11 · CPU ready · optional NVIDIA GPU support</p></Reveal>
           </div>
         </section>
       </main>
@@ -491,9 +506,8 @@ function AnimatedFavicon({ mood }: { mood: string }) {
     let link = document.querySelector<HTMLLinkElement>("link[rel~='icon']");
     if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
     const prev = link.getAttribute("href");
-    let t = 0; let id: ReturnType<typeof setTimeout>;
+    const t = 0.12;
     const draw = () => {
-      t += 0.12;
       const cols = MOODS[moodRef.current]?.cols || MOODS.sienna.cols;
       x.clearRect(0, 0, 64, 64);
       x.lineCap = "round"; x.lineJoin = "round";
@@ -506,11 +520,10 @@ function AnimatedFavicon({ mood }: { mood: string }) {
       }
       x.globalAlpha = 1;
       link!.href = c.toDataURL("image/png");
-      id = setTimeout(draw, 120);
     };
     draw();
-    return () => { clearTimeout(id); if (prev) link!.setAttribute("href", prev); };
-  }, []);
+    return () => { if (prev) link!.setAttribute("href", prev); };
+  }, [mood]);
   return null;
 }
 const DownloadIcon = () => <svg viewBox="0 0 24 24" width="16" height="16" fill="none"><path d="M12 4v11m0 0l-3.5-3.5M12 15l3.5-3.5M6 19h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;

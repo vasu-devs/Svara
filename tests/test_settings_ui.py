@@ -155,6 +155,21 @@ class TestControlsDriveTheApp(unittest.TestCase):
         self.assertTrue(self._pick(frame, "f8"))
         app.set_hotkey.assert_called_once_with("f8")
 
+    def test_control_variable_belongs_to_its_own_window(self):
+        from mywhisper.settings_ui import _combo
+        # The overlay can own Tk's default interpreter. Settings must bind
+        # their variables to their own window, irrespective of creation order.
+        other = tk.Tk()
+        other.withdraw()
+        self.addCleanup(other.destroy)
+        cell = tk.Frame(other)
+        picked = []
+        box = _combo(cell, [(1, "One"), (2, "Two")], 1, picked.append)
+        cell.update_idletasks()
+        box.set("Two")
+        box.event_generate("<<ComboboxSelected>>")
+        self.assertEqual(picked, [2])
+
     def test_add_word_calls_the_dictionary(self):
         from mywhisper.settings_ui import _words
         app, frame = self._build(_words)

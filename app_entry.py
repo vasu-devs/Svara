@@ -54,11 +54,9 @@ def main():
     while True:
         started = time.monotonic()
         try:
-            _run_once()
-            break
+            return int(_run_once() or 0)
         except SystemExit as e:
-            if not e.code:
-                break
+            return e.code if isinstance(e.code, int) else (1 if e.code else 0)
         except KeyboardInterrupt:
             break
         except Exception:
@@ -75,9 +73,9 @@ def main():
         restarts += 1
         if restarts > 5:
             _fatal_box(root)
-            break
+            return 1
         time.sleep(3)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

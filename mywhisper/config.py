@@ -2,6 +2,7 @@
 
 import copy
 import logging
+import math
 from pathlib import Path
 
 import yaml
@@ -222,6 +223,7 @@ DEFAULTS: dict = {
         "pill_width": 180,              # pill length in px
         "wave": "strings",              # strings | spectrum | bars | scope | pulse | particles
         "wave_weight": 1.0,             # thickness multiplier for the visualizer
+        "reduced_motion": False,        # static visualizers; instantaneous position changes
         "bg": "gradient",               # gradient | solid | aurora | carbon | nebula
         "compact": True,                # waveform-only pill (no text) — minimal
         "glass": False,                 # acrylic is broken on recent Win11 builds
@@ -282,8 +284,67 @@ def load(path: str | Path | None) -> dict:
             user = yaml.safe_load(f) or {}
         if not isinstance(user, dict):
             raise ValueError("config root must be a mapping")
-        cfg = _merge(cfg, user)
+        cfg = _validated_merge(cfg, user)
         log.debug("Loaded config from %s", p)
     except Exception as e:  # noqa: BLE001 — bad config should not kill the app
         log.error("Failed to parse %s (%s) — using defaults.", p, e)
     return cfg
+
+
+# Validate before construction: a valid YAML document can still contain
+# `audio: null`, a zero sample rate, or a string where a boolean is expected.
+# Keep the other settings and never include user-provided values in the log.
+_CHOICES = {
+    "model.device": {"cpu", "cuda", "auto"},
+    "model.task": {"transcribe", "translate"},
+    "recording.mode": {"hold_to_record", "press_to_toggle"},
+    "streaming.mode": {"live", "preview", "off"},
+    "streaming.commit_policy": {"local_agreement", "adaptive"},
+    "audio.device_policy": {"preferred", "system_default", "external_first"},
+    "injection.terminal_newline": {"space", "shift_enter", "literal"},
+    "cleanup.level": {"none", "light", "medium", "high"},
+}
+_BOUNDS = {
+    "audio.sample_rate": (16000, 16000),  # all recognition engines expect 16 kHz
+    "audio.block_size": (64, 8192), "audio.gain": (0.1, 10),
+    "recording.preroll_ms": (0, 10000), "recording.max_seconds": (1, 3600),
+    "recording.long_press_ms": (1, 5000), "recording.double_tap_ms": (1, 5000),
+    "streaming.interval_ms": (20, 10000), "streaming.min_audio_s": (0.1, 30),
+    "streaming.max_window_s": (0, 600), "streaming.hold_back": (0, 100),
+    "model.beam_size": (1, 20), "model.partial_beam_size": (1, 20),
+    "model.batch_size": (1, 64), "ui.scale": (0.5, 3),
+    "ui.pill_width": (140, 600), "ui.wave_weight": (0.25, 4),
+}
+
+
+def _validated_merge(base: dict, user: dict, prefix: str = "") -> dict:
+    out = copy.deepcopy(base)
+    for key, value in user.items():
+        if key not in base:
+            out[key] = copy.deepcopy(value)  # preserve extension/user data
+            continue
+        name = f"{prefix}{key}"
+        default = base[key]
+        if isinstance(default, dict) and isinstance(value, dict):
+            out[key] = _validated_merge(default, value, name + ".")
+            continue
+        if default is None or (name == "model.language" and value is None):
+            valid = True  # nullable keys have heterogeneous types
+        elif isinstance(default, bool):
+            valid = isinstance(value, bool)
+        elif isinstance(default, (int, float)):
+            valid = (isinstance(value, (int, float)) and not isinstance(value, bool)
+                     and math.isfinite(value)
+                     and (not isinstance(default, int) or isinstance(value, int)))
+        else:
+            valid = isinstance(value, type(default))
+        if valid and name in _CHOICES:
+            valid = isinstance(value, str) and value in _CHOICES[name]
+        if valid and name in _BOUNDS:
+            lo, hi = _BOUNDS[name]
+            valid = lo <= value <= hi
+        if valid:
+            out[key] = copy.deepcopy(value)
+        else:
+            log.warning("Invalid setting %s — using its default.", name)
+    return out

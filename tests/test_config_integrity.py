@@ -187,7 +187,7 @@ class TestCiDependencies(unittest.TestCase):
         optional. Silence is what let comtypes ship undeclared: every call
         site caught the ImportError, so the app just quietly lost the Start
         Menu shortcut instead of failing."""
-        local = {"mywhisper", "tests"}
+        local = {"mywhisper", "tests", "app_entry"}
         known = set(self.REQUIRED) | self.OPTIONAL | local
         unclassified = {
             mod: sorted(files)[:3]
