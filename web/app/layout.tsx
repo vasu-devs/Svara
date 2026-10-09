@@ -1,13 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Bricolage_Grotesque, Schibsted_Grotesk, Geist_Mono, Tiro_Devanagari_Sanskrit } from "next/font/google";
+import { Bricolage_Grotesque, Newsreader, Geist_Mono, Tiro_Devanagari_Sanskrit } from "next/font/google";
 import "./globals.css";
 
-// Three roles, one voice. Bricolage carries the headlines (its optical-size
-// axis gives display sizes real character), Schibsted does the reading,
-// Geist Mono sets every number and label. Tiro exists only for the Devanagari
-// wordmark - system fallbacks render स्वर in whatever the OS has lying about.
+// Two voices. Newsreader, with its optical-size axis, sets the transcript:
+// the words you spoke, as a manuscript. Bricolage is the interface voice:
+// wordmark, buttons. Geist Mono sets every note, number and timecode. Tiro
+// exists only for the Devanagari mark.
+const serif = Newsreader({ subsets: ["latin"], axes: ["opsz"], style: ["normal", "italic"], variable: "--font-serif", display: "swap" });
 const display = Bricolage_Grotesque({ subsets: ["latin"], axes: ["opsz", "wdth"], variable: "--font-display", display: "swap" });
-const body = Schibsted_Grotesk({ subsets: ["latin"], variable: "--font-body", display: "swap" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-mono", display: "swap" });
 const deva = Tiro_Devanagari_Sanskrit({ subsets: ["devanagari"], weight: "400", variable: "--font-deva", display: "swap" });
 
@@ -21,14 +21,14 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Svara — private voice dictation for Windows",
     description: "Talk into any app. Nothing leaves your PC. Free, open source, offline.",
-    images: [`${BASE}/og.svg`], type: "website",
+    images: [{ url: `${BASE}/og.png`, width: 1200, height: 630 }], type: "website",
   },
 };
-export const viewport: Viewport = { themeColor: "#edebe6" };
+export const viewport: Viewport = { themeColor: "#100e0c" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable} ${deva.variable}`}>
+    <html lang="en" className={`${serif.variable} ${display.variable} ${mono.variable} ${deva.variable}`}>
       <body>{children}</body>
     </html>
   );

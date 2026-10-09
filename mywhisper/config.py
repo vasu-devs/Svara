@@ -92,9 +92,11 @@ DEFAULTS: dict = {
     },
     "cleanup": {
         "level": "light",               # none | light | medium | high (one dial:
-                                        # light=fillers, medium=+backtrack,
+                                        # light=fillers/corrections, medium=+backtrack,
                                         # high=+LLM rewrite when Ollama is up)
         "strip_fillers": True,          # regex removal of um/uh/erm...
+        "self_corrections": True,       # explicit repairs; preview then insert at stop
+        "developer_syntax": False,      # opt-in "snake case ... end name" commands
         "expressive": {                 # voice-aware formatting
             "enabled": True,
             "caps_ratio": 2.5,          # segment ≥2.5× the utterance median → CAPS
@@ -122,6 +124,7 @@ DEFAULTS: dict = {
         "words": [],                    # names/jargon boosted during recognition
         "replacements": {},             # {"heard": "typed"} exact fixes, post-STT
         "snippets": {},                 # {"spoken trigger": "expanded text"}
+        "libraries": [],                # explicit local .svara-library.json files, read-only
         "spoken_punctuation": False,    # "period"/"comma"/"new line" → . , \n
         # Watches corrections you make to text Svara typed and SUGGESTS
         # dictionary entries. Never adds one on its own; suggestions wait in a
@@ -141,6 +144,8 @@ DEFAULTS: dict = {
                       "telegram.exe", "ms-teams.exe", "signal.exe"],
         "styles": {},                   # {"slack.exe": "casual, friendly"} —
                                         # tone hint for the LLM cleanup
+        "writing_style": "auto",        # auto | formal | casual | very_casual | excited
+        "formatting_styles": {},        # per-exe / chat / default punctuation presets
         # Reads the text just before your caret so mid-sentence dictation is
         # not capitalised. Off by default: this reads text Svara did not
         # produce. Never logged, never stored, dropped after each utterance.
@@ -215,7 +220,7 @@ DEFAULTS: dict = {
         "sounds": True,                 # beep on record start/stop
         "tray": True,                   # system tray icon
         "overlay": True,                # on-screen recording pill
-        "theme": "minimal-dark",        # see themes.py / tray ▸ Theme
+        "theme": "svara",               # see themes.py / tray ▸ Theme
         "theme_overrides": {},          # per-key tweaks on top of the theme
         "position": "bottom",           # bottom | top
         "offset_px": 80,                # distance from the screen edge
@@ -247,10 +252,11 @@ def merged_dictionary(cfg: dict) -> dict:
     machine-managed personal file): words union, replacements/snippets merge
     (dictionary.yaml wins on conflicts)."""
     from .paths import dictionary_path
+    from .libraries import merge_configured
     base = copy.deepcopy(cfg.get("dictionary") or DEFAULTS["dictionary"])
     p = dictionary_path()
     if not p.is_file():
-        return base
+        return merge_configured(base)
     try:
         with open(p, "r", encoding="utf-8") as f:
             over = yaml.safe_load(f) or {}
@@ -267,7 +273,7 @@ def merged_dictionary(cfg: dict) -> dict:
     except Exception as e:  # noqa: BLE001 — a broken dictionary must not kill startup
         log.error("Failed to parse %s (%s) — using config.yaml's dictionary only.",
                   p, e)
-    return base
+    return merge_configured(base)
 
 
 def load(path: str | Path | None) -> dict:
@@ -303,6 +309,7 @@ _CHOICES = {
     "audio.device_policy": {"preferred", "system_default", "external_first"},
     "injection.terminal_newline": {"space", "shift_enter", "literal"},
     "cleanup.level": {"none", "light", "medium", "high"},
+    "context.writing_style": {"auto", "formal", "casual", "very_casual", "excited"},
 }
 _BOUNDS = {
     "audio.sample_rate": (16000, 16000),  # all recognition engines expect 16 kHz

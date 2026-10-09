@@ -39,10 +39,29 @@ def fake_urlopen(routes):
 
 
 class TestBackendDetection(unittest.TestCase):
+    def test_empty_ollama_server_is_not_a_ready_model(self):
+        llm = LlmCleanup(dict(CFG, api="ollama"))
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
+                "11434/api/tags": {"models": []}})):
+            self.assertFalse(llm.reachable())
+
+    def test_auto_falls_back_when_ollama_has_the_wrong_model(self):
+        llm = LlmCleanup(dict(CFG))
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
+                "11434/api/tags": {"models": [{"name": "different:latest"}]},
+                "1234/v1/models": {"data": [{"id": "loaded"}]}})):
+            self.assertEqual(llm.backend(), "openai")
+
+    def test_missing_pinned_model_is_not_ready(self):
+        llm = LlmCleanup(dict(CFG, api="openai", openai_model="missing"))
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
+                "1234/v1/models": {"data": [{"id": "other"}]}})):
+            self.assertFalse(llm.reachable())
+
     def test_auto_prefers_ollama(self):
         llm = LlmCleanup(dict(CFG))
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
-                "11434/api/tags": {"models": []},
+                "11434/api/tags": {"models": [{"name": CFG["model"]}]},
                 "1234/v1/models": {"data": [{"id": "qwen"}]}})):
             self.assertEqual(llm.backend(), "ollama")
 
@@ -77,7 +96,7 @@ class TestBackendDetection(unittest.TestCase):
     def test_pinned_openai_model_wins(self):
         llm = LlmCleanup(dict(CFG, api="openai", openai_model="pinned"))
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
-                "1234/v1/models": {"data": [{"id": "other"}]}})):
+                "1234/v1/models": {"data": [{"id": "other"}, {"id": "pinned"}]}})):
             self.assertTrue(llm.reachable())
             self.assertEqual(llm._openai_model, "pinned")
 
@@ -95,7 +114,7 @@ class TestRunPrompt(unittest.TestCase):
     def test_ollama_chat_roundtrip(self):
         llm = LlmCleanup(dict(CFG, api="ollama"))
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
-                "11434/api/tags": {"models": []},
+                "11434/api/tags": {"models": [{"name": CFG["model"]}]},
                 "11434/api/chat": {"message": {"content": "Via Ollama."}}})):
             self.assertEqual(llm.run_prompt("sys", "raw dictated text"),
                              "Via Ollama.")

@@ -157,6 +157,9 @@ class TestLiveStreamingPath(unittest.TestCase):
         cfg["context"]["enabled"] = False   # determinism: no foreground probe
         cfg["update"]["check"] = False
         cfg["streaming"]["mode"] = "live"
+        # This regression specifically exercises append-only live delivery.
+        # Correction-aware final delivery has separate worker/preview tests.
+        cfg["cleanup"]["self_corrections"] = False
 
         from mywhisper.transcriber import Transcriber
         transcriber = Transcriber(cfg["model"], required=True)

@@ -6,7 +6,7 @@
 export type Mood = { key: string; name: string; accent: string; cols: [string, string, string] };
 
 export const MOODS: Record<string, Mood> = {
-  sienna: { key: "sienna", name: "Sienna", accent: "#c1573a", cols: ["#e08a5e", "#c1573a", "#8f3a26"] },
+  sienna: { key: "sienna", name: "Sienna", accent: "#e8a33d", cols: ["#f2b85a", "#e8a33d", "#c1573a"] },
   ochre:  { key: "ochre",  name: "Ochre",  accent: "#c99a2e", cols: ["#e6be5a", "#c99a2e", "#96721c"] },
   olive:  { key: "olive",  name: "Olive",  accent: "#6f8a3e", cols: ["#93b263", "#6f8a3e", "#4d6428"] },
   petrol: { key: "petrol", name: "Petrol", accent: "#2f8482", cols: ["#5fada9", "#2f8482", "#1c605e"] },
@@ -42,6 +42,10 @@ export function applyMood(key: string) {
 
 const TAU = Math.PI * 2;
 let level = 0.15, target = 0.15, speaking = 0;
+let external: number | null = null;
+/** A real signal (the visitor's microphone, measured in the tab) overrides the
+ *  synthetic envelope while it is set. null hands control back. */
+export function setExternalLevel(v: number | null) { external = v; requestDraw(); }
 export const pointer = { x: 0.5, active: 0 };
 export function speak(ms = 2200) { speaking = performance.now() + ms; }
 export function setPointer(nx: number, active: number) { pointer.x = nx; pointer.active = active; }
@@ -49,9 +53,9 @@ export function setPointer(nx: number, active: number) { pointer.x = nx; pointer
 function rootCols(): [string, string, string] {
   const s = getComputedStyle(document.documentElement);
   return [
-    s.getPropertyValue("--c1").trim() || "#e08a5e",
-    s.getPropertyValue("--c2").trim() || "#c1573a",
-    s.getPropertyValue("--c3").trim() || "#8f3a26",
+    s.getPropertyValue("--c1").trim() || "#f2b85a",
+    s.getPropertyValue("--c2").trim() || "#e8a33d",
+    s.getPropertyValue("--c3").trim() || "#c1573a",
   ];
 }
 
@@ -88,6 +92,7 @@ export function register(canvas: HTMLCanvasElement, style: () => Style, visible:
   };
 }
 function envelope(t: number) {
+  if (external !== null) { target = 0.12 + 0.88 * Math.min(1, external); level += (target - level) * 0.35; return level; }
   target = speaking > t ? 0.42 + 0.36 * Math.abs(Math.sin(t / 150)) * (0.62 + 0.38 * Math.sin(t / 47)) : 0.15 + 0.06 * Math.sin(t / 1100);
   level += (target - level) * 0.06; return level;
 }
@@ -106,7 +111,7 @@ function disc(c: CanvasRenderingContext2D, x: number, y: number, r: number, s: s
 function draw(n: Node, t: number, lv: number, base: [string, string, string]) {
   const { ctx, w, h } = n, mid = h / 2, sc = h / 56;
   // On the dark pill, multiply-blending would vanish; lift the strands instead.
-  const cols = n.onDark ? (base.map((c) => mix(c, "#ffffff", 0.72)) as [string, string, string]) : base;
+  const cols = n.onDark ? (base.map((c) => mix(c, "#ffffff", 0.9)) as [string, string, string]) : base;
   const col = (i: number) => cols[i % 3];
   const style = n.style();
   const rich = !!n.hero; // hero panels get more strands + softer bloom

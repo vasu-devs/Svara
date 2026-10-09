@@ -226,6 +226,13 @@ def main() -> int:
                 cfg["streaming"]["mode"] = saved["streaming_mode"]
             if saved.get("cleanup_level"):
                 cfg["cleanup"]["level"] = saved["cleanup_level"]
+            if isinstance(saved.get("self_corrections"), bool):
+                cfg["cleanup"]["self_corrections"] = saved["self_corrections"]
+            if isinstance(saved.get("developer_syntax"), bool):
+                cfg["cleanup"]["developer_syntax"] = saved["developer_syntax"]
+            from .pipeline.writing_style import STYLES
+            if isinstance(saved.get("writing_style"), str) and saved["writing_style"] in STYLES:
+                cfg["context"]["writing_style"] = saved["writing_style"]
             if saved.get("whisper_mode"):
                 cfg["audio"]["whisper_mode"] = True
             if saved.get("hotkey"):

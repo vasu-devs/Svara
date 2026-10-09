@@ -28,7 +28,7 @@ import threading
 
 import numpy as np
 
-from .themes import get_theme
+from .themes import DEFAULT as DEFAULT_THEME, get_theme
 
 log = logging.getLogger(__name__)
 
@@ -251,7 +251,7 @@ class Overlay:
         self._egg_n = 0
         pos = ui_cfg.get("pos")
         self._custom_home = tuple(pos) if isinstance(pos, (list, tuple)) else None
-        self._theme = get_theme(ui_cfg.get("theme", "minimal-dark"),
+        self._theme = get_theme(ui_cfg.get("theme", DEFAULT_THEME),
                                 ui_cfg.get("theme_overrides") or {})
         self._overrides = ui_cfg.get("theme_overrides") or {}
         self._wave = ui_cfg.get("wave", "strings")

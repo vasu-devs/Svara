@@ -8,35 +8,44 @@ isn't full of "um".
 import re
 
 from .base import BaseStage, UtteranceContext
+from .corrections import outside_literals
 
-_FILLER_RE = re.compile(r"\b(?:um+|uh+|uhm+|erm+|hmm+|mmm+)\b[,.]?\s*", re.IGNORECASE)
+_FILLER_RE = re.compile(
+    r"\b(?:u+m+|u+h+|u+h+m+|e+r+m+|h+m{2,}|m{3,}|a+h{2,}|a{2,}h+)\b[,.!?]*[ \t]*",
+    re.IGNORECASE)
+# Keep meaningful repetition such as "had had", "that that" and "very very".
+_SUBJECT_STUTTER = re.compile(r"\b(I|we|you|he|she|they)(?:[ ,\t-]+\1\b)+", re.I)
+_FRAGMENT_STUTTER = re.compile(r"\b([a-z]{1,3})-(?:\1-)+(\1[a-z]+)\b", re.I)
 _SPACE_RE = re.compile(r"[ \t]{2,}")
 _SPACE_PUNCT_RE = re.compile(r"\s+([,.!?;:])")
 
 
 def strip_fillers(text: str) -> str:
-    out = _FILLER_RE.sub("", text)
-    out = _SPACE_RE.sub(" ", out)
-    out = _SPACE_PUNCT_RE.sub(r"\1", out)
-    return out.strip()
+    def clean(part):
+        out = _FILLER_RE.sub("", part)
+        out = _SUBJECT_STUTTER.sub(r"\1", out)
+        out = _FRAGMENT_STUTTER.sub(r"\2", out)
+        out = _SPACE_RE.sub(" ", out)
+        return _SPACE_PUNCT_RE.sub(r"\1", out)
+    return outside_literals(text, clean).strip()
 
 
 # Backtrack: "send the email... scratch that, delete it" → "delete it".
-# Deliberately limited to explicit retraction phrases — resolving "at 2,
-# actually 3" correctly needs a language model, and a rule that guesses wrong
-# silently destroys words the user said on purpose.
+# Whole-clause retraction is separate from the conservative slot repairs in
+# corrections.py; broader rewrites remain the local language model's job.
 _BACKTRACK_RE = re.compile(
     r"[^.!?\n]*?\b(?:scratch|strike|forget) that\b[,.!?]?\s*", re.IGNORECASE)
 
 
 def apply_backtrack(text: str) -> str:
-    out = _BACKTRACK_RE.sub("", text)
+    out = outside_literals(text, lambda part: _BACKTRACK_RE.sub("", part))
     return out.strip() if out.strip() else text  # never erase everything
 
 
 class FillerStage(BaseStage):
     name = "fillers"
     min_level = 1  # light
+    allow_empty = True  # filler-only speech should insert nothing
 
     def __init__(self, enabled: bool = True):
         self.enabled = enabled

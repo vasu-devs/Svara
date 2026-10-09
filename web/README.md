@@ -4,11 +4,36 @@ The interactive landing site for Svara. Next.js 16 (App Router) + React 19,
 with CSS transitions and a shared canvas animation engine. Requires Node.js 20.9+.
 
 Highlights:
-- A bounded draggable hero pill and cursor-reactive ribbons
-- Three scripted dictation examples with playback, pause, replay, and progress
-- Eight canvas visualizers, suspended when offscreen or the tab is hidden
-- **Tap-to-recolor** theming that morphs the whole page accent
-- Reduced-motion support, keyboard focus styles, and a mobile-friendly layout
+- A dark room, and the pill is the only light in it. The page is still a
+  transcript: one dictation typeset as it lands, with proofreader's notes in
+  the margin. It is set in bone on charcoal, and a warm light follows what
+  you are reading; Svara's corrections glow amber as they happen.
+- The first line types itself with the mistakes in ("Um, talk into, talk
+  into any app"), the pill riding beside the caret the way the real one stays
+  next to where you type, then the filler collapses and the pill settles into
+  its slot. Double-tap Right Alt on the page to see it again.
+- The Codex renders of this world sit inside the transcript as plates where
+  the copy mentions them: the Alt key, the pill beside a heatsink, the
+  unplugged cable, the strings, the real pill render, the real first-run
+  window. Numbers from `BENCH.md`, the connection ledger from `PRIVACY.md`.
+- It reacts to you. Your cursor is the torch: move it and the light in the
+  room follows, stop and it drifts back to what you are reading. Click the
+  pill and it hears you: a real level from your microphone, measured in the
+  tab with Web Audio, drawn on the strings, never recorded or sent. Words
+  glint under the cursor, plates tilt in 3D with a sliding highlight, and the
+  download button leans toward the pointer with an amber glow.
+- Hover a corrected word to see what was heard; hover a margin note to
+  underline its words. Timecodes per paragraph; the score in the top bar
+  keeps transcript time, words typed, and the zero bytes uploaded.
+- Motion is GSAP: ScrollSmoother for inertia, ScrollTrigger for the word
+  reveals, the light and the pill on the ticker. Reduced motion renders the
+  finished transcript with the light off.
+
+Type: Newsreader (the transcript, with its optical-size axis), Bricolage
+Grotesque (the interface), Geist Mono (notes, numbers, timecodes), Tiro
+Devanagari Sanskrit (the स्वर mark). Tokens live at the top of
+`app/globals.css`; the copy and its interventions are the `BLOCKS` array in
+`app/page.tsx`. The social preview is `public/og.png`.
 
 ## Develop
 

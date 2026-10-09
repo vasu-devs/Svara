@@ -530,6 +530,25 @@ class MyWhisperApp:
         self._save_state(cleanup_level=level)
         self._refresh_tray()
 
+    def set_self_corrections(self, enabled: bool):
+        self.cleanup.self_corrections_enabled = bool(enabled)
+        self.cfg["cleanup"]["self_corrections"] = bool(enabled)
+        self._save_state(self_corrections=bool(enabled))
+        self._refresh_tray()
+
+    def set_writing_style(self, style: str):
+        from .pipeline.writing_style import STYLES
+        if style not in STYLES:
+            return
+        self.cleanup.set_writing_style(style)
+        self.cfg["context"]["writing_style"] = style
+        self._save_state(writing_style=style)
+
+    def set_developer_syntax(self, enabled: bool):
+        self.cleanup.chain.get("developer_syntax").enabled = bool(enabled)
+        self.cfg["cleanup"]["developer_syntax"] = bool(enabled)
+        self._save_state(developer_syntax=bool(enabled))
+
     # -- hotkey rebind (live) -------------------------------------------------
 
     def set_hotkey(self, spec: str):
@@ -867,6 +886,9 @@ class MyWhisperApp:
         if self.tray:
             self.tray.set_recording(True)
         mode = self.cfg["streaming"]["mode"]
+        if mode == "live" and self.cleanup.requires_final_cleanup:
+            mode = "preview"
+            log.info("correction-aware dictation — inserting cleaned text at stop")
         # A terminal must never receive a half-typed line it could submit, and
         # an elevated window discards synthetic input entirely — both get one
         # clean insertion at the end instead of live streaming.
@@ -1004,11 +1026,11 @@ class MyWhisperApp:
     # -- background threads -----------------------------------------------------
 
     def _committed_so_far(self) -> str:
-        """What the streamer has typed this utterance — the text semantic
-        endpointing judges. Empty when streaming is off, in which case
+        """Latest preview or typed words for semantic endpointing.
+        Empty when streaming is off, in which case
         `should_finish` degrades to the plain silence timer."""
         ctx = self._stream_ctx or {}
-        return " ".join(ctx.get("all_typed") or [])
+        return ctx.get("preview_text") or " ".join(ctx.get("all_typed") or [])
 
     def _monitor(self):
         """Auto-stop on silence, max-duration cap, and mic health (always-on)."""
@@ -1122,8 +1144,10 @@ class MyWhisperApp:
                     if not (self.recorder.recording and ctx is self._stream_ctx):
                         break
                     if not live:
-                        self.overlay.set_preview(
-                            " ".join(t for t, _, _ in segs))
+                        draft = " ".join(t for t, _, _ in segs)
+                        ctx["preview_text"] = draft
+                        self.overlay.set_preview(self.cleanup.preview(
+                            draft, ctx.get("utterance", self._ctx)))
                     else:
                         # While the hotkey (Alt!) is physically held, synthetic
                         # keystrokes would arrive as Alt+char and be eaten by
@@ -1252,6 +1276,11 @@ class MyWhisperApp:
                     for (seg_text, _s, _e), loud in zip(segs, seg_flags))
                 t0 = time.perf_counter()
                 text = self.cleanup.run(text, ctx=utterance)
+                if not text.strip():
+                    self.overlay.hide()
+                    self.recorder.discard_recovery()
+                    log.info("(no text after removing speech hesitations)")
+                    continue
                 text = self._auto_transform(text)
                 t_clean = time.perf_counter() - t0
                 n = self.injector.inject(text, utterance)
