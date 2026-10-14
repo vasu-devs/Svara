@@ -42,6 +42,7 @@ def setUpModule():
 def everything_on(cfg: dict) -> dict:
     cfg["ui"]["tray"] = False
     cfg["ui"]["overlay"] = False
+    cfg["injection"]["inline_preview"] = False   # never register an input method from a test
     cfg["update"]["check"] = False
     cfg["logging"]["debug_transcripts"] = False
     cfg["context"]["read_caret_text"] = True
@@ -50,6 +51,8 @@ def everything_on(cfg: dict) -> dict:
     cfg["locale"]["romanize"] = "auto"
     cfg["locale"]["english_variant"] = "en-GB"
     cfg["cleanup"]["level"] = "high"
+    # hermetic: "high" must not reach a real Ollama / LM Studio on the dev box
+    cfg["cleanup"]["llm"].update(url="http://127.0.0.1:9", openai_url="http://127.0.0.1:9/v1")
     cfg["streaming"]["commit_policy"] = "adaptive"
     cfg["streaming"]["context_prompt_words"] = 8
     cfg["recording"]["auto_stop"].update(enabled=True, semantic=True)
@@ -149,10 +152,12 @@ class AppSmokeTest(unittest.TestCase):
             UtteranceContext(app="myeditor.exe"))
         self.assertEqual(strategy.name, "shift_insert")
 
-    def test_terminal_target_disables_live_streaming(self):
+    def test_terminals_stream_but_elevated_windows_do_not(self):
         app = self._build()
-        self.assertFalse(app.injector.streams_into(
+        self.assertTrue(app.injector.streams_into(
             UtteranceContext(app="cmd.exe", is_terminal=True)))
+        self.assertFalse(app.injector.streams_into(
+            UtteranceContext(app="cmd.exe", is_elevated=True)))
 
     def test_shutdown_is_idempotent(self):
         app = self._build()
@@ -162,7 +167,8 @@ class AppSmokeTest(unittest.TestCase):
     def test_defaults_also_construct(self):
         # The configuration 99% of users actually run.
         def defaults(cfg):
-            cfg["ui"]["tray"] = False
+            cfg["ui"]["overlay"] = False
+            cfg["injection"]["inline_preview"] = False
             cfg["ui"]["overlay"] = False
             cfg["update"]["check"] = False
             return cfg

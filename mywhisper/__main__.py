@@ -10,10 +10,20 @@ from pathlib import Path
 
 def _single_instance() -> bool:
     """Named-mutex guard so two copies never fight over the hotkey/mic."""
-    if os.name != "nt":
-        return True
     if getattr(sys, "_mywhisper_mutex", None):
         return True  # already held by this process (supervisor restart)
+    if os.name != "nt":
+        # flock on a runtime-dir file: released by the kernel when we die, so
+        # a crash never leaves a stale lock behind.
+        import fcntl
+        lock = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "svara.lock"
+        try:
+            fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o600)
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        sys._mywhisper_mutex = fd  # keep the descriptor (and the lock) alive
+        return True
     handle = ctypes.windll.kernel32.CreateMutexW(None, False, "MyWhisper_SingleInstance")
     if ctypes.windll.kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
         return False
@@ -226,6 +236,13 @@ def main() -> int:
                 cfg["streaming"]["mode"] = saved["streaming_mode"]
             if saved.get("cleanup_level"):
                 cfg["cleanup"]["level"] = saved["cleanup_level"]
+            if isinstance(saved.get("self_corrections"), bool):
+                cfg["cleanup"]["self_corrections"] = saved["self_corrections"]
+            if isinstance(saved.get("developer_syntax"), bool):
+                cfg["cleanup"]["developer_syntax"] = saved["developer_syntax"]
+            from .pipeline.writing_style import STYLES
+            if isinstance(saved.get("writing_style"), str) and saved["writing_style"] in STYLES:
+                cfg["context"]["writing_style"] = saved["writing_style"]
             if saved.get("whisper_mode"):
                 cfg["audio"]["whisper_mode"] = True
             if saved.get("hotkey"):
@@ -382,6 +399,16 @@ def main() -> int:
     app = MyWhisperApp(cfg, no_tray=args.no_tray, transcriber=transcriber,
                        show_welcome=setup_completed, quiet_start=args.autostart)
     _splash(close=True)
+    if os.name != "nt":
+        # systemd stops the service with SIGTERM: leave the same way Ctrl+C
+        # does, so the Hyprland binds and the FIFO are cleaned up instead of
+        # left behind for the next instance (or a bare key) to trip over.
+        import signal
+
+        def _term(signum, frame):
+            raise KeyboardInterrupt
+
+        signal.signal(signal.SIGTERM, _term)
     app.run()
     return 0
 

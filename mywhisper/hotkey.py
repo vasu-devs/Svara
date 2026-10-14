@@ -13,11 +13,15 @@ Combo ("ctrl+win", "ctrl+shift+space"): classic hold-to-record / press-to-toggle
 
 import ctypes
 import logging
+import os
 import queue
 import threading
 import time
 
-from pynput import keyboard
+try:
+    from pynput import keyboard
+except ImportError:  # Linux: no global hooks on Wayland — see hotkey_hyprland
+    keyboard = None
 
 log = logging.getLogger(__name__)
 
@@ -155,7 +159,7 @@ class PollingKeyListener:
     def __init__(self, rec_cfg: dict, on_start, on_commit, on_cancel, on_lock,
                  is_recording):
         self.spec = rec_cfg["hotkey"]
-        self.vks = resolve_vks(self.spec)
+        self.vks = resolve_vks(self.spec) if os.name == "nt" else []  # VKs are the Win32 poller's; Hyprland resolves its own
         self.mode = rec_cfg["mode"]
         self.on_start = on_start
         self.on_commit = on_commit
@@ -170,6 +174,9 @@ class PollingKeyListener:
         self._down = False
         self._run = False
         self._thread = None
+        self.rec_cfg = rec_cfg
+        self._taps = 0            # (toggle mode) taps so far towards `toggle_taps`
+        self._last_tap_at = 0.0
 
     @property
     def locked(self) -> bool:
@@ -199,24 +206,40 @@ class PollingKeyListener:
     def _loop(self):
         while self._run:
             try:
-                now = time.monotonic()
-                down = self._pressed()
-                action = None
-                if down and not self._down:
-                    self._down = True
-                    if self.mode == "press_to_toggle":
-                        action = "commit" if self.is_recording() else "start"
-                    else:
-                        action = self.machine.key_down(now)
-                elif not down and self._down:
-                    self._down = False
-                    if self.mode != "press_to_toggle":
-                        action = self.machine.key_up(now)
-                if action:
-                    self._dispatch(action)
+                self._edge(self._pressed(), time.monotonic())
             except Exception:  # noqa: BLE001 — poll loop must never die
                 log.exception("hotkey poll failed")
             time.sleep(0.016)  # ~60 Hz
+
+    def _edge(self, down: bool, now: float):
+        """Feed the key's current state; acts only on a change."""
+        action = None
+        if down and not self._down:
+            self._down = True
+            if self.mode == "press_to_toggle":
+                if self.is_recording():
+                    action = "commit"
+                else:
+                    # recording.toggle_taps: 2 = a double tap starts (a lone
+                    # tap, usually accidental, does nothing); 1 = any tap.
+                    taps = int(self.rec_cfg.get("toggle_taps", 1) or 1)
+                    self._taps = (self._taps + 1
+                                  if now - self._last_tap_at <= self.machine.double_tap_s else 1)
+                    self._last_tap_at = now
+                    if self._taps >= taps:
+                        self._taps = 0
+                        action = "start"
+                    else:
+                        log.info("tap %d of %d — tap again within %.1fs to start",
+                                 self._taps, taps, self.machine.double_tap_s)
+            else:
+                action = self.machine.key_down(now)
+        elif not down and self._down:
+            self._down = False
+            if self.mode != "press_to_toggle":
+                action = self.machine.key_up(now)
+        if action:
+            self._dispatch(action)
 
     def _dispatch(self, action: str):
         if action == "start":
@@ -233,7 +256,7 @@ class SingleKeyListener:
     def __init__(self, rec_cfg: dict, on_start, on_commit, on_cancel, on_lock,
                  is_recording):
         self.spec = rec_cfg["hotkey"]
-        self.vks = resolve_vks(self.spec)
+        self.vks = resolve_vks(self.spec) if os.name == "nt" else []  # VKs are the Win32 poller's; Hyprland resolves its own
         self.mode = rec_cfg["mode"]
         self.on_start = on_start
         self.on_commit = on_commit
@@ -576,7 +599,12 @@ def create_listener(rec_cfg: dict, on_start, on_commit, on_cancel, on_lock,
     the user explicitly sets `suppress_key: true` AND wants the key hidden from
     other apps do we fall back to the low-level hook (SingleKeyListener).
     Combos always use the hook-based ComboListener.
+    On Linux every spec goes through the compositor (HyprlandKeyListener).
     """
+    if os.name != "nt":
+        from .hotkey_hyprland import HyprlandKeyListener
+        return HyprlandKeyListener(rec_cfg, on_start, on_commit, on_cancel,
+                                   on_lock, is_recording)
     if "+" in rec_cfg["hotkey"]:
         cls = ComboListener
     elif rec_cfg.get("suppress_key") is True:

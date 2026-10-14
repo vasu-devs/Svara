@@ -19,6 +19,7 @@ retries in the background. Decoding raises a clear error until it succeeds,
 which the worker already catches and logs.
 """
 
+import gc
 import logging
 import threading
 import time
@@ -44,7 +45,7 @@ class Transcriber:
     """
 
     def __init__(self, mcfg: dict, backend: str | None = None,
-                 required: bool = False):
+                 required: bool = False, lazy: bool = False):
         self.cfg = mcfg
         self._backend_name = backend or mcfg.get("backend") or "faster-whisper"
         self.backend = None
@@ -54,12 +55,16 @@ class Transcriber:
         # `required=True` is for callers that genuinely cannot continue without
         # a model - first-run setup, --test, --bench - where failing loudly is
         # the correct behaviour and there is a human watching.
-        self._load(raise_on_failure=required)
+        # `lazy=True` leaves the RAM alone until the first hotkey (`ensure`).
+        if not lazy:
+            self._load(raise_on_failure=required)
 
     # -- loading --------------------------------------------------------------
 
     def _load(self, raise_on_failure: bool = False) -> bool:
         with self._lock:
+            if self.backend is not None:  # a concurrent caller loaded it
+                return True
             self._last_try = time.monotonic()
             try:
                 self.backend = asr.create(self.cfg, self._backend_name)
@@ -82,12 +87,29 @@ class Transcriber:
     def retry(self, min_interval_s: float = RETRY_INTERVAL_S) -> bool:
         """Called from the app's monitor thread. Rate-limited, because loading
         a model is expensive and a machine that is genuinely offline should not
-        spend every spare cycle finding that out again."""
+        spend every spare cycle finding that out again. Only a FAILED load is
+        retried: a model never loaded or unloaded on purpose waits for the
+        hotkey (`ensure`)."""
         if self.ready:
             return True
-        if time.monotonic() - self._last_try < min_interval_s:
+        if self.error is None or time.monotonic() - self._last_try < min_interval_s:
             return False
         return self._load()
+
+    def ensure(self) -> bool:
+        """Load now if needed. Safe from several threads: the lock makes the
+        second caller wait for the first load instead of starting another."""
+        return self.ready or self._load()
+
+    def unload(self):
+        """Give the RAM back; the next `ensure` reloads from the disk cache."""
+        with self._lock:
+            if self.backend is None:
+                return
+            self.backend = None
+            self.error = None
+        gc.collect()
+        log.info("speech model unloaded after idle — reloads on the next hotkey")
 
     # -- forwarding -----------------------------------------------------------
 
@@ -119,8 +141,14 @@ class Transcriber:
             return BackendCaps(name="loading")
         return self.backend.capabilities
 
-    def transcribe(self, audio):
-        return self._require().transcribe(audio)
+    def transcribe(self, audio, prompt: str | None = None):
+        backend = self._require()
+        if prompt:
+            try:
+                return backend.transcribe(audio, prompt=prompt)
+            except TypeError:   # a backend without prompt support
+                pass
+        return backend.transcribe(audio)
 
     def transcribe_partial(self, audio, prompt: str | None = None):
         return self._require().transcribe_partial(audio, prompt=prompt)

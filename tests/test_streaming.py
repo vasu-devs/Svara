@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from mywhisper.streaming import chars_to_retype  # noqa: E402
 from mywhisper.streaming import (AdaptiveAgreementPolicy,  # noqa: E402
                                  LocalAgreementPolicy, StreamState,
                                  align_remainder, make_policy, plan_trim)
@@ -265,3 +266,19 @@ class TestAlignRemainder(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCharsToRetype(unittest.TestCase):
+    def test_matching_prefix_keeps_the_typed_text(self):
+        self.assertEqual(chars_to_retype(["push", "the"], ["Push", "the,", "code"],
+                                         ["push", "the"]), 0)
+
+    def test_disagreement_erases_every_typed_character(self):
+        # two stream commits: "push the " then "cold " = 14 characters on screen
+        self.assertEqual(chars_to_retype(["push", "the", "cold"],
+                                         ["push", "the", "code"],
+                                         ["push", "the", "cold"]), 14)
+
+    def test_nothing_typed_means_nothing_to_erase(self):
+        self.assertEqual(chars_to_retype([], ["hello"], []), 0)
+        self.assertEqual(chars_to_retype(["x"], ["y"], []), 0)

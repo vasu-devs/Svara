@@ -89,10 +89,18 @@ class _VendoredMoonshine:
         self.eos_token_id = 2
 
         sub = f"onnx/merged/{size}/float"
-        encoder = hf_hub_download("UsefulSensors/moonshine",
-                                  "encoder_model.onnx", subfolder=sub)
-        decoder = hf_hub_download("UsefulSensors/moonshine",
-                                  "decoder_model_merged.onnx", subfolder=sub)
+
+        def fetch(name):
+            # Cached copy first: no Hub round-trip on every on-demand load,
+            # and no stall when offline. Only a miss goes to the network.
+            try:
+                return hf_hub_download("UsefulSensors/moonshine", name,
+                                       subfolder=sub, local_files_only=True)
+            except Exception:  # noqa: BLE001 — any cache miss / offline error
+                return hf_hub_download("UsefulSensors/moonshine", name, subfolder=sub)
+
+        encoder = fetch("encoder_model.onnx")
+        decoder = fetch("decoder_model_merged.onnx")
         opts = onnxruntime.SessionOptions()
         opts.log_severity_level = 3  # ORT is chatty at INFO
         self.encoder = onnxruntime.InferenceSession(encoder, opts)

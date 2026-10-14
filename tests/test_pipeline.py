@@ -83,8 +83,9 @@ class TestStageOrder(unittest.TestCase):
     def test_declared_order(self):
         order = build_chain({"strip_fillers": True, "llm": dict(LLM_OFF)}).order
         self.assertEqual(order, [
-            "fillers", "backtrack", "numbered_lists", "llm", "locale",
-            "romanize", "app_rules", "continuation", "personalizer"])
+            "fillers", "self_corrections", "backtrack", "numbered_lists", "llm", "locale",
+            "romanize", "app_rules", "writing_style", "continuation",
+            "developer_syntax", "personalizer"])
 
     def test_personalizer_is_always_last(self):
         # The user's replacement table is the one thing here that is not a

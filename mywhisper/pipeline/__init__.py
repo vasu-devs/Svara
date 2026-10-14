@@ -16,6 +16,9 @@ Order is not arbitrary. Three constraints hold it together:
 
 from .app_rules import AppRulesStage, ContinuationStage
 from .base import LEVELS, BaseStage, Chain, Stage, UtteranceContext, rank
+from .corrections import CorrectionStage
+from .developer import DeveloperStage
+from .writing_style import WritingStyleStage
 from .lists import NumberedListStage, numbered_lists
 from .llm import LlmCleanup, LlmStage
 from .locale import (LocaleTypographyStage, cjk_spacing, english_variant,
@@ -42,13 +45,16 @@ def build_chain(cleanup_cfg: dict, dict_cfg: dict | None = None,
     ctxc = context_cfg or {}
     return Chain([
         FillerStage(bool(cleanup_cfg.get("strip_fillers", True))),
+        CorrectionStage(bool(cleanup_cfg.get("self_corrections", True))),
         BacktrackStage(),
         NumberedListStage(bool(loc.get("numbered_lists", True))),
         LlmStage(llm or LlmCleanup(cleanup_cfg["llm"])),
         LocaleTypographyStage(str(loc.get("typography", "auto")) != "off"),
         TransliterationStage(loc.get("romanize", "never")),
         AppRulesStage(bool(ctxc.get("chat_no_period", True))),
+        WritingStyleStage(ctxc),
         ContinuationStage(),
+        DeveloperStage(bool(cleanup_cfg.get("developer_syntax", False))),
         PersonalizerStage(personalizer or Personalizer(dict_cfg)),
     ])
 
@@ -59,7 +65,7 @@ class CleanupPipeline:
 
     none   → verbatim (the personal dictionary still applies — those are the
              user's own words, not "cleanup")
-    light  → + fillers, locale typography
+    light  → + fillers, explicit self-corrections, locale typography
     medium → + retractions, numbered lists
     high   → + LLM rewrite when a local server is reachable (else = medium)
 
@@ -85,6 +91,40 @@ class CleanupPipeline:
     def set_level(self, level: str):
         if level in LEVELS:
             self.level = level
+
+    def set_writing_style(self, style: str):
+        from .writing_style import STYLES
+        if style in STYLES:
+            self.chain.get("writing_style").cfg["writing_style"] = style
+
+    @property
+    def self_corrections_enabled(self) -> bool:
+        return self.chain.get("self_corrections").enabled
+
+    @self_corrections_enabled.setter
+    def self_corrections_enabled(self, enabled: bool):
+        self.chain.get("self_corrections").enabled = bool(enabled)
+
+    @property
+    def requires_final_cleanup(self) -> bool:
+        """Never commit words that whole-utterance cleanup may retract later."""
+        style_cfg = self.chain.get("writing_style").cfg
+        styled = (style_cfg.get("writing_style", "auto") != "auto"
+                  or bool(style_cfg.get("formatting_styles")))
+        return (self.llm.enabled or rank(self.level) >= 2
+                or self.personalizer.requires_final_cleanup
+                or (rank(self.level) >= 1 and (self.self_corrections_enabled
+                    or self.chain.get("developer_syntax").enabled or styled)))
+
+    def preview(self, text: str, ctx: UtteranceContext | None = None) -> str:
+        """Cheap tentative captions: no LLM, personal snippets or network calls."""
+        if rank(self.level) < 1:
+            return text
+        if self.strip_fillers_enabled:
+            text = strip_fillers(text)
+        if self.self_corrections_enabled and (ctx is None or ctx.source != "command"):
+            text = self.chain.get("self_corrections").run(text, ctx or self.context())
+        return text
 
     @property
     def strip_fillers_enabled(self) -> bool:

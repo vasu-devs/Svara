@@ -9,16 +9,17 @@ YAML.
 Design notes, because they are decisions and not accidents:
 
 - **Ink on paper.** Same palette as the setup window and the site: paper,
-  a cream card, one sienna accent. No second accent anywhere.
-- **Three type roles.** Georgia sets the section titles, because the product is
-  named for a musical note and the site already speaks in serif; Segoe UI does
+  a lighter sheet, one amber accent. No second accent anywhere.
+- **Three type roles.** Newsreader (bundled; Georgia if it fails to load) sets the
+  section titles, because the product is named for a musical note and the site
+  already speaks in this serif; Segoe UI does
   the work; Consolas carries keys, model ids and anything the user might type
   or copy, where fixed width is information rather than styling.
 - **Label and description left, control right, one aligned column.** The old
   window put controls immediately after their labels, so five differently-sized
   dropdowns produced five different left edges and the hints beside them
   wrapped into the window frame. An aligned column cannot do that.
-- **The active section is the one flourish**: a sienna rule and Georgia italic.
+- **The active section is the one flourish**: an amber rule and a serif italic.
   Everything else stays quiet. A settings window that shows off is a bad
   settings window.
 
@@ -30,13 +31,15 @@ to restart, except where it genuinely must, and then it says so.
 import logging
 import sys
 
-from .setup_ui import ACCENT, BG, BTN_TEXT, CARD, CARD_ON, ERROR, FG, SUB
+from .setup_ui import (ACCENT, BG, BTN, BTN_HOVER, BTN_TEXT, CARD, CARD_ON, ERROR,
+                       FG, SUB)
+from .ui_fonts import serif_family
 
 log = logging.getLogger(__name__)
 
-DISPLAY = "Georgia"     # section titles, and the active nav item
-UI = "Segoe UI"         # everything you read and click
-MONO = "Consolas"       # keys, model ids, paths — fixed width is information
+DISPLAY = serif_family()  # section titles, and the active nav item (Newsreader, or Georgia)
+UI = "Segoe UI"           # everything you read and click
+MONO = "Consolas"         # keys, model ids, paths — fixed width is information
 
 LANGUAGES = [
     (None, "Auto-detect"), ("en", "English"), ("hi", "Hindi"),
@@ -56,7 +59,7 @@ ENGLISH_VARIANTS = [
 
 CLEANUP_LEVELS = [
     ("none", "Off — exactly what you said"),
-    ("light", "Light — drop um and uh"),
+    ("light", "Light — fillers and corrections"),
     ("medium", "Medium — also fix “scratch that”"),
     ("high", "High — rewrite with your local AI"),
 ]
@@ -211,8 +214,8 @@ def _button(cell, text, command, primary=False):
     import tkinter as tk
     return tk.Button(
         cell, text=text, command=command,
-        bg=ACCENT if primary else CARD, fg=BTN_TEXT if primary else FG,
-        activebackground=ACCENT if primary else CARD_ON,
+        bg=BTN if primary else CARD, fg=BTN_TEXT if primary else FG,
+        activebackground=BTN_HOVER if primary else CARD_ON,
         activeforeground=BTN_TEXT if primary else FG,
         bd=0, padx=14, pady=5, cursor="hand2",
         font=(UI, 9, "bold" if primary else "normal"))
@@ -247,8 +250,9 @@ def _speech(parent, app):
                                  "if you only dictate in that language."),
                LANGUAGES, app.current_language, app.set_language)
 
-    _combo(s.row("Words appear", "Live typing shows words about a second "
-                                 "behind you. Terminals always wait for the end."),
+    _combo(s.row("Words appear", "Corrections, styles, snippets and voice syntax "
+                                 "preview first and insert at stop. Plain Light "
+                                 "cleanup allows live typing."),
            STREAMING_MODES, app.cfg["streaming"]["mode"], app.set_streaming_mode)
 
     _switch(s.row("Whisper mode", "Boosts a quiet voice, for dictating late at "
@@ -266,6 +270,27 @@ def _writing(parent, app):
     _combo(s.row("Clean-up", "Higher settings tidy more. High uses your own "
                              "local AI, if one is running."),
            CLEANUP_LEVELS, app.cleanup.level, app.set_cleanup_level)
+
+    _switch(s.row("Spoken corrections", "Say ‘at 5, no no, at 4’ and keep only "
+                                        "‘at 4’. Preview while speaking; insert "
+                                        "when you stop. Active with Light or higher."),
+            "Keep the corrected wording",
+            lambda: app.cfg["cleanup"].get("self_corrections", True),
+            app.set_self_corrections)
+
+    _combo(s.row("Writing style", "Adjust punctuation and casing without "
+                                  "rewriting your words. Per-app overrides "
+                                  "can be set in config.yaml."),
+           [("auto", "Automatic"), ("formal", "Formal"), ("casual", "Casual"),
+            ("very_casual", "Very casual — lowercase"), ("excited", "Excited")],
+           app.cfg["context"].get("writing_style", "auto"), app.set_writing_style)
+
+    _switch(s.row("Developer voice syntax", "Say ‘snake case user name end name’ "
+                                           "for user_name, or ‘file name main dot "
+                                           "py end file’ for main.py."),
+            "Format identifiers and filenames",
+            lambda: app.cfg["cleanup"].get("developer_syntax", False),
+            app.set_developer_syntax)
 
     _combo(s.row("English spelling", "Canadian is British spelling with "
                                      "American -ize, which is correct."),

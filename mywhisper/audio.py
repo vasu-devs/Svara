@@ -10,16 +10,26 @@ Audio only ever lives in RAM, and only ~0.5 s of it outside a recording.
 
 import collections
 import logging
+import os
 import queue
 import threading
 import time
 
-import numpy as np
-import sounddevice as sd
+# Name our PipeWire stream (Linux): shells and privacy indicators then see
+# "Svara" instead of "PipeWire ALSA [python3.13]". Read at stream-open time.
+os.environ.setdefault("PIPEWIRE_ALSA", "{ application.name = Svara node.name = Svara }")
+
+import numpy as np  # noqa: E402
+import sounddevice as sd  # noqa: E402
 
 from .redact import E_AUDIO_DEV
 
 log = logging.getLogger(__name__)
+
+# PortAudio's global state (sd.play/sd.stop, Pa_Terminate) is not thread-safe:
+# two chimes 1 ms apart closed the same output stream twice -> "double free".
+# Hold this around sd.play() and around terminate/initialize.
+PORTAUDIO_LOCK = threading.Lock()
 
 
 class Recorder:
@@ -261,8 +271,9 @@ class Recorder:
         try:
             # Re-query so a new default device (e.g. headset → laptop mic)
             # is picked up.
-            sd._terminate()
-            sd._initialize()
+            with PORTAUDIO_LOCK:
+                sd._terminate()
+                sd._initialize()
         except Exception:  # noqa: BLE001
             pass
         candidates = self._candidates()
@@ -303,6 +314,7 @@ class Recorder:
             np.clip(mono, -1.0, 1.0, out=mono)
         rms = float(np.sqrt(np.mean(mono * mono))) if len(mono) else 0.0
         self._last_rms = rms
+        self._last_block = mono
         with self._lock:
             if self._recording:
                 self._rec.append(mono)
@@ -317,6 +329,11 @@ class Recorder:
 
     def _voice_threshold(self) -> float:
         return max(self._noise_rms * 3.5, 0.005)
+
+    @property
+    def voice_threshold(self) -> float:
+        """RMS above which a block counts as voice (the streamer's silence gate)."""
+        return float(self._voice_threshold())
 
     # -- recording control ----------------------------------------------------
 
@@ -382,6 +399,20 @@ class Recorder:
 
     def speech_ms(self) -> float:
         return self._speech_ms
+
+    def bands(self, n: int = 5) -> list[float]:
+        """n log-spaced band levels (0..1) of the latest audio block, for the
+        island's bars. Cheap: one small FFT per call."""
+        block = getattr(self, "_last_block", None)
+        if block is None or len(block) < 64:
+            return [0.0] * n
+        spec = np.abs(np.fft.rfft(block[-1024:] * np.hanning(min(1024, len(block[-1024:])))))
+        edges = np.geomspace(2, len(spec) - 1, n + 1).astype(int)
+        out = []
+        for lo, hi in zip(edges[:-1], edges[1:]):
+            v = float(np.mean(spec[lo:max(hi, lo + 1)])) / 4.0
+            out.append(round(min(1.0, v), 3))
+        return out
 
     @property
     def level(self) -> float:

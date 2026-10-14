@@ -173,6 +173,29 @@ def _norm(word: str) -> str:
     return _PUNCT.sub("", (word or "").lower())
 
 
+def chars_to_retype(committed: list[str], words: list[str],
+                    all_typed: list[str]) -> int:
+    """How many on-screen characters the final pass must replace.
+
+    0 when the final hypothesis still begins with every committed word
+    (punctuation and case aside — those never earn a flicker), otherwise the
+    whole live-typed run: each stream commit typed its words plus one trailing
+    space, so the run is the joined words plus that last space.
+    """
+    if not committed or not all_typed:
+        return 0
+    if (len(words) >= len(committed)
+            and all(_norm(c) == _norm(w) for c, w in zip(committed, words))):
+        return 0
+    return len(" ".join(all_typed)) + 1
+
+
+def same_words(a: str, b: str) -> bool:
+    """Equal apart from case and punctuation: a polish that only capitalised
+    or added a comma is not worth backspacing two lines for mid-dictation."""
+    return [_norm(w) for w in a.split() if _norm(w)] == [_norm(w) for w in b.split() if _norm(w)]
+
+
 def align_remainder(committed: list[str], words: list[str]) -> list[str]:
     """Which of the final pass's words have NOT been typed yet.
 
@@ -327,3 +350,54 @@ class StreamState:
             self.last_words = (self.last_words[dropped:]
                                if dropped <= len(self.last_words) else [])
         return step
+
+
+# ---------------------------------------------------------------------------
+# What live typing has put on screen
+# ---------------------------------------------------------------------------
+
+class LiveScreen:
+    """The raw words live typing has put at the cursor, by word index, so a
+    polished span can replace its raw run with the fewest keystrokes.
+
+    Every typed word carries a trailing space. `marks[i]` is the character
+    offset where raw word i begins. A rewrite only ever touches the END of the
+    typed text (from the span's first word onward), which is the one place a
+    virtual keyboard can edit without knowing anything about the app.
+    """
+
+    def __init__(self):
+        self.text = ""
+        self.marks: list[int] = []
+
+    def append(self, words: list[str]) -> str:
+        out = ""
+        for w in words:
+            self.marks.append(len(self.text) + len(out))
+            out += w + " "
+        self.text += out
+        return out
+
+    def raw(self, a: int, b: int | None) -> str:
+        """The raw text currently on screen for words [a:b)."""
+        start = self.marks[a] if a < len(self.marks) else len(self.text)
+        end = self.marks[b] if b is not None and b < len(self.marks) else len(self.text)
+        return self.text[start:end]
+
+    def rewrite(self, a: int, b: int | None, polished: str) -> tuple[int, str]:
+        """Replace raw words [a:b) (b=None: to the end) with `polished`.
+        Returns (characters to backspace, text to type)."""
+        n = len(self.marks)
+        start = self.marks[a] if a < n else len(self.text)
+        suffix = self.text[self.marks[b]:] if b is not None and b < n else ""
+        retract = len(self.text) - start
+        span = polished.strip()
+        new = (span + " " if span else "") + suffix
+        self.text = self.text[:start] + new
+        delta = len(new) - retract
+        stop = min(b if b is not None else n, n)
+        for i in range(a, stop):
+            self.marks[i] = start
+        for i in range(stop, n):
+            self.marks[i] += delta
+        return retract, new

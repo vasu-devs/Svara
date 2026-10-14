@@ -138,6 +138,15 @@ class TestCiDependencies(unittest.TestCase):
                 "win32gui", "win32process", "pytest", "setuptools",
                 # CUDA detection; absent on a CPU-only machine by definition.
                 "nvidia",
+                # Linux-only (sys_platform marker in requirements.txt): the
+                # uinput keyboard behind injector_wayland. Never on Windows CI.
+                "evdev",
+                # Linux-only too (requirements-linux.txt): the Wayland
+                # input-method client behind ime_wayland's inline preview.
+                "pywayland",
+                # Voice adaptation only (mywhisper/voice_adapt.py), installed in the
+                # separate .venv-train; Svara itself never imports them.
+                "transformers", "peft",
                 # Injected by PyInstaller into the frozen exe only. It cannot
                 # be pip-installed, and importing it from source must fail.
                 "pyi_splash",

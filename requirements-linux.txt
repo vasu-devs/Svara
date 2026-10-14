@@ -1,0 +1,13 @@
+# Linux (Wayland/Hyprland) build — CPU only, no Windows shell or tray packages.
+# System packages: wl-clipboard, portaudio, and read/write access to /dev/uinput
+# (an ACL for your user, or the `input` group). Hyprland provides the hotkey.
+faster-whisper>=1.1.0
+onnxruntime>=1.18
+sounddevice>=0.4.6
+numpy
+PyYAML>=6.0
+huggingface_hub>=0.20
+tqdm>=4.66
+Pillow>=10.0
+evdev>=1.7
+pywayland>=0.4.18        # inline preview at the caret (Wayland input-method protocol)

@@ -85,7 +85,7 @@ def setup() -> list[str]:
     Returns the list of directories that were added (for diagnostics).
     """
     if os.name != "nt":
-        return []
+        return []   # Linux: `preload_linux()` runs right before the CUDA model loads
 
     roots: set[Path] = set()
     # Frozen (PyInstaller) build: DLLs live under the bundle root.
@@ -135,3 +135,41 @@ def setup() -> list[str]:
                 os.environ["PATH"] = str(d) + os.pathsep + os.environ.get("PATH", "")
                 added.append(str(d))
     return added
+
+
+_preloaded: list[str] | None = None
+
+
+def preload_linux() -> list[str]:
+    """The pip `nvidia-*` wheels put cuBLAS/cuDNN under site-packages, where
+    the dynamic loader never looks. dlopen each by full path with RTLD_GLOBAL
+    before CTranslate2 imports; glibc then resolves the same sonames from
+    what is already loaded. A few passes cover the dependency order. Called
+    only when a CUDA model is about to load: the mapped libraries cost
+    ~300 MB of resident memory, which an idle Svara should not hold."""
+    global _preloaded
+    if _preloaded is not None or os.name == "nt":
+        return _preloaded or []
+    import ctypes
+    import sysconfig
+
+    libs: list[Path] = []
+    for key in ("purelib", "platlib"):
+        base = sysconfig.get_paths().get(key)
+        if base:
+            libs += sorted(Path(base).glob("nvidia/*/lib/*.so*"))
+    loaded: list[str] = []
+    pending = list(dict.fromkeys(libs))
+    for _ in range(4):
+        failed = []
+        for lib in pending:
+            try:
+                ctypes.CDLL(str(lib), mode=ctypes.RTLD_GLOBAL)
+                loaded.append(str(lib.parent))
+            except OSError:
+                failed.append(lib)
+        if not failed:
+            break
+        pending = failed
+    _preloaded = sorted(set(loaded))
+    return _preloaded

@@ -147,6 +147,8 @@ class Chain:
             if out is None:
                 continue
             if text.strip() and not out.strip():
+                if getattr(stage, "allow_empty", False):
+                    return ""  # explicitly permitted, e.g. filler-only speech
                 # A stage that empties a non-empty utterance is a bug, and the
                 # user pays for it in lost words. Refuse the result.
                 log.error("%s stage %r emptied the text — refusing (%s)",

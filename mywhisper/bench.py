@@ -67,17 +67,101 @@ def _levenshtein(a: list, b: list) -> int:
     return prev[-1]
 
 
+_UNITS = {w: i for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen "
+    "fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+_UNITS["oh"] = 0
+_TENS = {w: 10 * i for i, w in enumerate(
+    "_ _ twenty thirty forty fifty sixty seventy eighty ninety".split()) if w != "_"}
+_ORDINALS = {"first": (1, "st"), "second": (2, "nd"), "third": (3, "rd"), "fifth": (5, "th"),
+             "eighth": (8, "th"), "ninth": (9, "th"), "twelfth": (12, "th"), "twentieth": (20, "th"),
+             "thirtieth": (30, "th")}
+for _w, _n in list(_UNITS.items()):
+    if _n >= 4 and _w + "th" not in _ORDINALS and _w not in ("oh", "zero"):
+        _ORDINALS.setdefault(_w + "th", (_n, "th"))
+_SCALES = {"hundred": 100, "thousand": 1000, "million": 10 ** 6}
+
+
+def _numbers(words: list[str]) -> list[str]:
+    """Spoken numbers → digits, so "twenty twenty-six" and "2026" compare equal.
+    Runs of digit groups are then joined on both sides, which makes every
+    spoken split of a number ("four forty-five", "five five five oh one two
+    three", "nineteen ninety-nine") meet its written form ("4:45", "555-0123",
+    "1999") without guessing which grouping the speaker meant."""
+    out: list[str] = []
+    total = cur = 0
+    active = False
+    last = ""
+
+    def flush():
+        nonlocal total, cur, active, last
+        if active:
+            out.append(str(total + cur))
+        total = cur = 0
+        active = False
+        last = ""
+
+    for i, w in enumerate(words):
+        nxt = words[i + 1] if i + 1 < len(words) else ""
+        if w in _ORDINALS:
+            n, suf = _ORDINALS[w]
+            if active and last == "tens":
+                out.append(str(total + cur + n) + suf)
+                total = cur = 0
+                active = False
+                last = ""
+            else:
+                flush()
+                out.append(str(n) + suf)
+        elif w in _UNITS:
+            if active and last in ("tens", "scale", "and"):
+                cur += _UNITS[w]
+                last = "unit"
+            else:
+                flush()
+                cur, active, last = _UNITS[w], True, "unit"
+        elif w in _TENS:
+            if active and last in ("scale", "and"):
+                cur += _TENS[w]
+            else:
+                flush()
+                cur, active = _TENS[w], True
+            last = "tens"
+        elif w in _SCALES and active:
+            if _SCALES[w] == 100:
+                cur = max(cur, 1) * 100
+            else:
+                total += max(cur, 1) * _SCALES[w]
+                cur = 0
+            last = "scale"
+        elif w == "and" and active and last == "scale" and (nxt in _UNITS or nxt in _TENS):
+            last = "and"
+        else:
+            flush()
+            out.append(w)
+    flush()
+    joined: list[str] = []
+    for w in out:   # digit groups side by side are one number however they were said
+        if w.isdigit() and joined and joined[-1].isdigit():
+            joined[-1] += w
+        else:
+            joined.append(w)
+    return joined
+
+
 def _normalize(text: str) -> list[str]:
-    """Standard WER normalisation: casefold, drop punctuation, collapse space.
-    Without it you are measuring the post-processor's comma preferences, not
-    the recogniser."""
+    """Standard WER normalisation: casefold, drop punctuation, collapse space,
+    numbers to digits. Without it you are measuring the post-processor's comma
+    preferences and number style, not the recogniser."""
+    import re
+    text = re.sub(r"(?<=\d),(?=\d{3})", "", (text or "").lower())   # 1,250 → 1250
     keep = []
-    for ch in (text or "").lower():
+    for ch in text:
         if ch.isalnum() or ch.isspace() or ch == "'":
             keep.append(ch)
         else:
             keep.append(" ")
-    return "".join(keep).split()
+    return _numbers("".join(keep).split())
 
 
 def wer(reference: str, hypothesis: str) -> float:
