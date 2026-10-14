@@ -1304,15 +1304,6 @@ class MyWhisperApp:
             if audio is not None and len(audio) - state.t0 >= min_samples:
                 try:
                     window = audio[state.t0:]
-                    # A window with no voice in it (everything said so far was
-                    # trimmed, the user is thinking) is where Whisper invents
-                    # text; skip it instead of decoding it.
-                    thr = getattr(self.recorder, "voice_threshold", None)
-                    recent = window[-sr:]   # judge the last second, not the whole window
-                    if (isinstance(thr, float) and len(recent)
-                            and float(np.sqrt(np.mean(recent * recent))) < thr):
-                        time.sleep(0.1)
-                        continue
                     # Optional rolling context: hand the decoder the words we
                     # already typed, so a partial window is not decoded as if
                     # the speaker had just started talking. Off by default —

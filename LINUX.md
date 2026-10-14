@@ -21,7 +21,7 @@ finish. Quit with `systemctl --user stop svara`.
 
 | Need | Why | On CachyOS |
 |---|---|---|
-| Hyprland | it owns the keyboard, so it fires the hotkey for us | present |
+| Hyprland | it owns the keyboard, so it fires the hotkey for us; set `input:numlock_by_default = true` so Svara's virtual keyboard matches your Num Lock (otherwise each dictation flips the lock state and a lock-key OSD flashes) | present |
 | `wl-clipboard` | paste path and non-ASCII text | present |
 | `/dev/uinput` writable by you | the virtual keyboard that types | an ACL already grants it; otherwise `sudo usermod -aG input $USER` and a udev rule |
 | Python 3.13 with Tk, `uv` | venv; Tk only for the optional windows | the mise Python 3.13 has Tk 9 |
