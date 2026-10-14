@@ -1120,8 +1120,8 @@ class MyWhisperApp:
         if self._stopping or not self.recorder.recording:
             return
         self._stopping = True
-        if self.voice is None:   # a take keeps the prompt on screen; no "working" state
-            self.overlay.working()  # Win32 pill closes right at your tap; the island waits for the text
+        if self.voice is None:   # a take keeps the prompt on screen
+            self.overlay.hide()   # your words are already on screen: the pill goes at the tap
         if self.cfg["ui"]["sounds"] and self.voice is None:   # a take: the next line is the confirmation
             _chime(240, 180, 0.3)   # a lower bloop: "done"
         self._finalize_timer = threading.Timer(0.4, self._finalize_stop,
@@ -1483,10 +1483,23 @@ class MyWhisperApp:
                     screen: LiveScreen = ctx["screen"]
                     # The last span is cleaned without the LLM: it costs ~1 s
                     # per call and the words are already on screen.
-                    quick = lambda t: self.cleanup.run(   # noqa: E731
+                    # The chain directly: CleanupPipeline.run() would reset the level
+                    # to the configured "high" and call the LLM after all.
+                    quick = lambda t: self.cleanup.chain.run(   # noqa: E731
                         " ".join(apply_edit_commands(t.split())),
-                        ctx=utterance.with_level("medium"))
-                    text = fin.finish(audio[ctx.get("t0", 0):], quick_polish=quick)
+                        (utterance or self.cleanup.context()).with_level("medium")) if t.strip() else ""
+                    # Release is instant: keep what is already polished, take the
+                    # rest as it stands, and decode only the window since the last
+                    # trim (~0.3 s on the GPU) so the word being finished is not lost.
+                    # shortcut: the last sentence skips the LLM polish, upgrade by
+                    # polishing it after the commit if users miss it.
+                    polished, covered = fin.stop_now()
+                    window = audio[ctx.get("t0", 0):]
+                    heard = (" ".join(t for t, _s, _e in self.transcriber.transcribe_partial(window))
+                             if len(window) >= int(0.3 * self.recorder.sr) else "")
+                    rest = align_remainder(ctx.get("committed", []), heard.split())
+                    tail = quick(" ".join(ctx.get("raw", [])[covered:] + rest))
+                    text = " ".join(p for p in (polished, tail) if p).strip()
                     if ctx.get("ime"):
                         # The preview becomes the text: one commit, no keystrokes.
                         text = self._auto_transform(text) if text else text
@@ -1504,15 +1517,13 @@ class MyWhisperApp:
                     elif screen.marks:
                         # Live-typed: converge the screen on the polished text.
                         before = screen.text
-                        spans = ctx.pop("deferred", []) + fin.take_ready()
                         if self.cfg["streaming"].get("retype_on_finish", True):
-                            for a, b, span in spans:
+                            for a, b, span in ctx.pop("deferred", []) + fin.take_ready():
                                 self._apply_span(screen, a, b, span, utterance)
-                        elif spans:
-                            a, _b, span = spans[-1]   # append what is not on screen yet
-                            rest = align_remainder(ctx["raw"][a:], span.split())
-                            if rest:
-                                screen.append(rest)
+                        # the unpolished stretch gets the instant cleanup (dictionary,
+                        # punctuation, edit commands) — one short rewrite at the very end
+                        if covered < len(ctx["raw"]) or rest:
+                            screen.rewrite(covered, None, tail)
                         self._sync_screen(screen, before, utterance)
                         text = screen.text.strip()
                         n = len(screen.text)
@@ -1525,7 +1536,7 @@ class MyWhisperApp:
                         self.recorder.discard_recovery()
                         log.info("(no speech detected — %.1fs of audio)", dur)
                         continue
-                    self.overlay.flash_done(text)
+                    self.overlay.hide()
                     self._record_history(text)
                     log.info("✓ %.1fs audio → %d chars%s, %.2fs after release "
                              "(%d chunks finalized while speaking: %.2fs decode "

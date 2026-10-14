@@ -2,6 +2,7 @@
 is still talking; release pays for the tail only. Headless, no model."""
 
 import sys
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -128,6 +129,32 @@ class TestIncrementalFinalizer(unittest.TestCase):
         wait_chunks(fin, 1, 0.3)
         fin.push(chunk("kept."), ["kept."])
         self.assertEqual(fin.finish(chunk("tail.")), "kept. tail.")
+
+    def test_stop_now_returns_what_is_polished_and_drops_the_queue(self):
+        gate = threading.Event()
+        polished = []
+
+        def slow_polish(t):
+            polished.append(t)
+            gate.wait(2)
+            return t.upper()
+
+        fin = IncrementalFinalizer(fake_transcribe, slow_polish, min_span_words=2, min_decode_s=0)
+        fin.push(chunk("one", "two."), ["one", "two."])
+        wait_chunks(fin, 1)
+        gate.set()                                       # first span polished
+        deadline = time.monotonic() + 2
+        while not fin.spans and time.monotonic() < deadline:
+            time.sleep(0.01)
+        gate.clear()
+        fin.push(chunk("three", "four."), ["three", "four."])   # this one gets stuck mid-polish
+        fin.push(chunk("five", "six."), ["five", "six."])       # and this one never starts
+        wait_chunks(fin, 2)
+        t0 = time.monotonic()
+        text, covered = fin.stop_now()
+        self.assertLess(time.monotonic() - t0, 0.2, "release must not wait for the LLM")
+        self.assertEqual((text, covered), ("ONE TWO.", 2))
+        gate.set()
 
     def test_cancel_stops_the_thread(self):
         fin = IncrementalFinalizer(fake_transcribe, lambda t: t)

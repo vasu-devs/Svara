@@ -133,9 +133,13 @@ preview is inline.
    and the finalizer applies the same rule to the text it polishes, so the
    command never comes back. All of one pass's appends, edits and polished
    rewrites go out as a single backspace-and-retype (`_sync_screen`).
-5. Finishing is instant: the last span is cleaned without the LLM (its
-   words are already on screen), so the pill lets go about 0.4 s after your
-   tap. Earlier sentences were polished while you spoke.
+5. Finishing is instant: at the tap or release the island hides, queued
+   polish work is dropped (`IncrementalFinalizer.stop_now`), only the audio
+   since the last trim is decoded (~0.3 s on the GPU) so the word you were
+   finishing is kept, and the unpolished last stretch gets the instant
+   cleanup (dictionary, punctuation, edit commands) without the LLM. Done in
+   0.3-0.7 s after release. Sentences that finished polishing while you spoke
+   keep their polish.
 6. Release costs the tail only: the last few seconds of audio and one short
    polish call, however long you talked. The log line says how much was
    finalized while you were still speaking.

@@ -85,6 +85,21 @@ class IncrementalFinalizer:
     def cancel(self):
         self._q.put(None)
 
+    def stop_now(self) -> tuple[str, int]:
+        """Release, instantly: drop queued work, return the text polished so
+        far and how many raw words it covers. A chunk already mid-polish
+        finishes in the background and is ignored; nothing waits on the LLM."""
+        while True:
+            try:
+                self._q.get_nowait()
+                self._q.task_done()
+            except queue.Empty:
+                break
+        self._q.put(None)
+        with self._lock:
+            covered = self.spans[-1][1] if self.spans else 0
+            return " ".join(t for _a, _b, t in self.spans).strip(), covered or 0
+
     # -- the background thread ----------------------------------------------------
 
     def _run(self):
