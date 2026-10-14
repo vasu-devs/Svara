@@ -50,6 +50,8 @@ Input: I don't want to cancel. No, keep the meeting.
 Output: I don't want to cancel. Keep the meeting.
 Input: It was very very good. I had had enough.
 Output: It was very very good. I had had enough.
+Keep profanity, slang and swearing exactly as spoken: never censor, soften,
+asterisk or replace a word because it is rude.
 Keep every sentence. The only words that may disappear are hesitations, stutters,
 abandoned starts and details the speaker retracted; everything else the speaker
 said must still be there, in order. Never summarize, never shorten.

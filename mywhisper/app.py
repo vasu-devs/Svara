@@ -225,6 +225,14 @@ class MyWhisperApp:
         self.transcriber = transcriber or Transcriber(
             cfg["model"], lazy=self._unload_after_s > 0)  # loads + warms up
         self._unload_timer: threading.Timer | None = None
+        if self._unload_after_s:
+            # Load now, in the background, so the first dictation is instant;
+            # the idle timer frees everything after model.unload_after_min.
+            def _preload():
+                self.transcriber.ensure()
+                self.cleanup.llm.warm(self.cleanup.level)
+                self._schedule_unload()
+            threading.Thread(target=_preload, daemon=True, name="preload").start()
 
         self.hotkey = create_listener(
             cfg["recording"],
@@ -1347,11 +1355,15 @@ class MyWhisperApp:
                         # Inline preview wins whenever the focused field speaks
                         # text-input: no keystrokes, no held-modifier problem,
                         # the app draws the preview in its own style.
-                        inline = self.ime is not None and self.ime.active
+                        # Inline only in the field the dictation started in: after a
+                        # focus change the preview must not follow you to another chat.
+                        inline = (self.ime is not None and self.ime.active
+                                  and ctx.get("ime_gen", self.ime.generation) == self.ime.generation)
                         typing = (live and not inline and not self.hotkey.held
                                   and self.injector.streams_into(utt))
                         if inline:
                             ctx["ime"] = True
+                            ctx.setdefault("ime_gen", self.ime.generation)
                             covered = fin.covered
                             rest = [] if covered is None else ctx["raw"][covered:]
                             unstable = step.words[len(state.committed):]
@@ -1405,6 +1417,24 @@ class MyWhisperApp:
                     else:
                         log.debug("streaming pass failed", exc_info=True)
             time.sleep(max(0.05, interval - (time.perf_counter() - t_start)))
+
+    def _commit_inline(self, text: str, gen) -> int:
+        """Turn the inline preview into text, in the field it started in and
+        nowhere else. If that field lost focus the app has already kept the
+        preview as text; delivering again anywhere would duplicate it, so the
+        final wording only goes to the clipboard."""
+        if self.ime is not None and self.ime.active and self.ime.generation == gen:
+            if text:
+                self.ime.commit(text + " ")
+                return len(text) + 1
+            self.ime.clear()
+            return 0
+        if text:
+            from .injector import _clipboard_set
+            _clipboard_set(text)
+            self._notify("You switched fields while dictating: the text stayed where you "
+                         "started, and the final wording is on the clipboard.")
+        return 0
 
     def _apply_span(self, screen: LiveScreen, a: int, b: int | None, text: str,
                     utt) -> None:
@@ -1503,16 +1533,7 @@ class MyWhisperApp:
                     if ctx.get("ime"):
                         # The preview becomes the text: one commit, no keystrokes.
                         text = self._auto_transform(text) if text else text
-                        if self.ime is not None and self.ime.active:
-                            n = len(text) + 1 if text else 0
-                            if text:
-                                self.ime.commit(text + " ")
-                            else:
-                                self.ime.clear()
-                        elif text:   # focus moved away meanwhile: deliver anyway
-                            n = self.injector.inject(text, utterance)
-                        else:
-                            n = 0
+                        n = self._commit_inline(text, ctx.get("ime_gen"))
                         self.session_words += len(text.split())
                     elif screen.marks:
                         # Live-typed: converge the screen on the polished text.

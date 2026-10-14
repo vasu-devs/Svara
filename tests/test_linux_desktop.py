@@ -206,5 +206,33 @@ class TestIslandFeed(unittest.TestCase):
         self.assertEqual(self.read()["state"], "listening")
 
 
+class TestInlineCommit(unittest.TestCase):
+    """The inline preview is committed in its own field, never pasted elsewhere."""
+
+    def make(self, active, gen):
+        from mywhisper.app import MyWhisperApp
+        app = MyWhisperApp.__new__(MyWhisperApp)
+        app.ime = mock.Mock(active=active, generation=gen)
+        app.injector = mock.Mock()
+        app._notify = mock.Mock()
+        return app
+
+    def test_same_field_commits_once(self):
+        app = self.make(True, 3)
+        self.assertEqual(app._commit_inline("hello there", 3), len("hello there") + 1)
+        app.ime.commit.assert_called_once_with("hello there ")
+        app.injector.inject.assert_not_called()
+
+    def test_another_field_gets_nothing_and_the_clipboard_keeps_it(self):
+        for active, gen in ((True, 4), (False, 3)):   # switched chats / field lost focus
+            app = self.make(active, gen)
+            with mock.patch("mywhisper.injector._clipboard_set") as clip:
+                self.assertEqual(app._commit_inline("hello there", 3), 0)
+            clip.assert_called_once_with("hello there")
+            app.ime.commit.assert_not_called()
+            app.injector.inject.assert_not_called()
+            app.injector.inject_stream.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

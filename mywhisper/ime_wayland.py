@@ -31,6 +31,7 @@ class ImePreview:
         self.active = False
         self._pending_active = False
         self._serial = 0
+        self.generation = 0     # +1 each time a text field gains focus: "same field" check
         self._display = None
         self._im = None
         self._lock = threading.Lock()
@@ -82,6 +83,8 @@ class ImePreview:
         # Per protocol the activate/deactivate state applies on `done`, and
         # every request batch we send must quote the number of `done`s seen.
         self._serial += 1
+        if self._pending_active and not self.active:
+            self.generation += 1
         self.active = self._pending_active
 
     def _on_unavailable(self):

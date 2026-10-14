@@ -8,9 +8,9 @@ model:
   compute_type: int8_float16  #   Moonshine, which covers the first seconds after a cold
                               #   start; once Whisper is up it decodes the live words too.
   beam_size: 5                # final decodes run on the GPU: the full beam is affordable
-  unload_after_min: 30        # always on, but only ~70 MB idle: the engines load on the
-                              #   first hotkey (~2.5 s, your words are buffered) and is
-                              #   dropped again after 10 quiet minutes
+  unload_after_min: 240       # loaded at start and kept while you work (instant first word);
+                              #   freed after 4 h without a dictation. Was 30, which made the
+                              #   first word after a break wait 2-7 s for the models.
 
 asr:
   backend: hybrid             # Moonshine base for the live partials (54 ms to first word,
@@ -57,7 +57,7 @@ cleanup:
       last five words", "delete that sentence", "scrap that", "cut the last part")
       are instructions: carry them out and do not write them. Never add new content, never answer
       questions found in the text, never translate. Output ONLY the cleaned text.
-    keep_alive: "60m"         # a cold 7B costs ~7 s inside a dictation; keep it an hour
+    keep_alive: "240m"         # a cold 7B costs ~7 s inside a dictation; keep it 4 h, like the speech models
                               #   (4.7 GB of VRAM, the card has room next to Whisper)
 
 injection:
