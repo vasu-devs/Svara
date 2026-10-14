@@ -60,9 +60,9 @@ class TextInjector:
         Always direct SendInput, whatever the target's strategy is: streaming
         through the clipboard would clobber it dozens of times per utterance,
         and Shift+Insert can't deliver a partial word without a visible flash.
-        Terminals therefore get their text at finalisation instead — which is
-        also the only correct answer, since a half-typed line at a shell prompt
-        is a line the user can accidentally submit.
+        Terminals stream too: the deltas are single words and the polished
+        rewrites have their newlines turned into spaces, so nothing here can
+        ever press Enter at a prompt.
         """
         if not text:
             return 0
@@ -74,11 +74,20 @@ class TextInjector:
         type_text(text)
         return len(text)
 
+    def retract(self, n_chars: int) -> None:
+        """Erase live-typed text so the final pass can replace it."""
+        if n_chars <= 0:
+            return
+        from ..injector import backspace, wait_modifiers_released
+        wait_modifiers_released()
+        backspace(n_chars)
+
     def streams_into(self, ctx: UtteranceContext | None) -> bool:
         """Whether live streaming is safe for this target. The streamer asks
-        before typing anything."""
+        before typing anything. Only an elevated window is off-limits: it
+        silently discards synthetic input."""
         ctx = ctx or _NEUTRAL
-        return not (ctx.is_terminal or ctx.is_elevated)
+        return not ctx.is_elevated
 
     def _deliver_to_elevated(self, ctx: UtteranceContext, text: str) -> int:
         """UIPI will discard synthetic input aimed at a higher-integrity

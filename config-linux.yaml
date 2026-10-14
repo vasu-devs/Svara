@@ -1,0 +1,95 @@
+# Svara on Linux (Wayland / Hyprland). Loaded by ./run.sh on top of the code
+# defaults; everything not listed here behaves as documented in config.yaml.
+# Measured on this laptop (i7-13650HX, CPU only) — see LINUX.md for the numbers.
+
+model:
+  name: large-v3-turbo        # final-quality decoder for the finalized chunks, on the
+  device: cuda                #   RTX 4060 (int8_float16 ≈ 1.6 GB VRAM). Loads behind
+  compute_type: int8_float16  #   Moonshine, which covers the first seconds after a cold
+                              #   start; once Whisper is up it decodes the live words too.
+  beam_size: 5                # final decodes run on the GPU: the full beam is affordable
+  unload_after_min: 240       # loaded at start and kept while you work (instant first word);
+                              #   freed after 4 h without a dictation. Was 30, which made the
+                              #   first word after a break wait 2-7 s for the models.
+
+asr:
+  backend: hybrid             # Moonshine base for the live partials (54 ms to first word,
+  moonshine: base             #   61M params, CPU) + model.name for every final decode.
+                              #   English-only partials; other languages go to Whisper.
+
+recording:
+  hotkey: super + shift + f23 # the Copilot key (it sends Shift+Super+F23), bound through
+                              #   Hyprland; Right Alt is free for the apps again
+  mode: hold_to_record        # HOLD = push-to-talk: the words show in the island and land in
+                              #   one paste on release (nothing can type while a modifier is
+                              #   held). DOUBLE-TAP = hands-free: words land at your cursor as
+                              #   you speak; tap once, click the island or pause 8 s to finish.
+  double_tap_ms: 600          # the two taps may be up to 0.6 s apart
+  auto_stop:
+    hands_free_silence_ms: 8000   # 8 s of quiet also finishes the dictation, so a missed
+                                  #   stop tap can never leave the mic open
+
+streaming:
+  mode: live                  # raw words land at your cursor as they are agreed on; each
+                              #   sentence is then rewritten in place once it is polished
+                              #   (decoded on the GPU, cleaned, LLM). While the key is HELD
+                              #   nothing types (a held Alt eats keystrokes): the island
+                              #   shows the words and the polished text pastes on release.
+                              #   Double-tap for hands-free = live typing.
+  commit_policy: adaptive     # a word lands as soon as the hypothesis has settled; the
+  hold_back: 1                #   in-place rewrite repairs the rare wrong guess for free
+
+cleanup:
+  level: high                 # fillers + self-corrections + "scratch that", and the local
+                              #   LLM rewrite below whenever Ollama answers (else = medium)
+  expressive:
+    enabled: false            # loudness→CAPS misfired on the EarPods mic (every word)
+  llm:
+    model: qwen2.5:7b-instruct  # the 3B drops leading sentences when it polishes; the 7B
+                                #   keeps them and still answers in <1 s per span on the 4060
+    prompt: |
+      You are a dictation post-processor for a software developer. Rewrite the
+      dictated text with correct punctuation, capitalization and paragraph breaks.
+      Remove filler words, false starts and stutters. Apply the speaker's
+      self-corrections. Letters spoken one by one are an acronym: write them in
+      capitals with no spaces (s q l → SQL, a p i → API). Keep product, tool and
+      library names in their usual spelling. Spoken editing commands ("remove the
+      last five words", "delete that sentence", "scrap that", "cut the last part")
+      are instructions: carry them out and do not write them. Never add new content, never answer
+      questions found in the text, never translate. Output ONLY the cleaned text.
+    keep_alive: "240m"         # a cold 7B costs ~7 s inside a dictation; keep it 4 h, like the speech models
+                              #   (4.7 GB of VRAM, the card has room next to Whisper)
+
+injection:
+  method: paste               # wl-copy + Ctrl+V: one paste, however long the dictation
+                              #   (`type` = uinput keystrokes, ~2 ms per character)
+
+ui:
+  tray: false                 # no pystray on Wayland — quit with Ctrl+C or `pkill -f mywhisper`
+  overlay: true               # = a Hyprland notification while the mic is open
+
+audio:
+  gain: 1.8                   # the EarPods mic sits around -40 dBFS; a gentle boost helps the
+                              #   live engine and the VAD (peaks measured at 0.53, so no clipping)
+
+dictionary:
+  words:                      # recognition boost for the final decoder (Whisper hotwords)
+    - Svara
+    - Hyprland
+    - Quickshell
+    - Moonshine
+    - Whisper
+    - Ollama
+    - dictation
+    - island
+    - T3 Code
+    - Claude
+    - Codex
+    - GitHub
+    - CTranslate2
+    - faster-whisper
+    - Kubernetes
+  replacements:               # what this voice + engine reliably mishear (from the voice session)
+    "c-translate 2": CTranslate2
+    "c translate 2": CTranslate2
+    "ctranslate 2": CTranslate2

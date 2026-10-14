@@ -70,6 +70,9 @@ class FasterWhisperBackend(AsrBackend):
         return merged or None
 
     def _load(self):
+        if str(self.cfg.get("device", "cpu")).lower() != "cpu":
+            from ..cuda_setup import preload_linux
+            preload_linux()   # no-op on Windows and when already done
         from faster_whisper import WhisperModel  # deferred: after cuda_setup.setup()
 
         name = self.cfg["name"]
@@ -139,11 +142,16 @@ class FasterWhisperBackend(AsrBackend):
             "condition_on_previous_text": False,  # avoids hallucination loops
         }
 
-    def transcribe(self, audio: np.ndarray) -> list[Segment]:
+    def transcribe(self, audio: np.ndarray,
+                   prompt: str | None = None) -> list[Segment]:
         """Full-quality pass. Timings enable loudness-aware (CAPS) formatting
-        and let the streamer trim committed audio."""
+        and let the streamer trim committed audio. `prompt` = the words just
+        before this audio, so a chunk is not decoded as if speech had only
+        just begun."""
         with self._lock:
             kwargs = self._final_kwargs()
+            if prompt:
+                kwargs["initial_prompt"] = prompt
             if self._batched is not None and not self._batched_failed:
                 try:
                     segments, _info = self._batched.transcribe(
@@ -182,7 +190,10 @@ class FasterWhisperBackend(AsrBackend):
                 language=stream_lang,
                 task=self.cfg.get("task", "transcribe"),
                 initial_prompt=prompt or self.cfg.get("initial_prompt"),
-                hotwords=self._hotwords(),
+                # No hotwords on live windows: on a short or quiet window the
+                # bias makes Whisper emit the hint itself ("T3 Code" → "C4
+                # code C4 code…"). The final decode keeps them and rewrites.
+                hotwords=None,
                 vad_filter=True,
                 condition_on_previous_text=False,
                 temperature=0.0,

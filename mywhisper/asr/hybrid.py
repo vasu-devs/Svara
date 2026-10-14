@@ -32,23 +32,53 @@ class HybridBackend(AsrBackend):
         from .faster_whisper import FasterWhisperBackend
         from .moonshine import MoonshineBackend
 
+        import threading
+
         self.cfg = mcfg
-        # Whisper first: it is the engine dictation cannot run without. If
-        # Moonshine then fails to load (no onnxruntime, blocked download),
-        # the property degrades to pure faster-whisper with one warning.
-        self._fw = FasterWhisperBackend(mcfg)
+        # Moonshine first, synchronously: it is what the first live words
+        # need. Whisper (the big one, possibly on the GPU) loads behind it;
+        # the first final-quality decode waits for it. If Moonshine fails
+        # (no onnxruntime, blocked download) everything routes to Whisper.
         self._moon = None
         try:
             self._moon = MoonshineBackend(mcfg)
         except Exception as e:  # noqa: BLE001
             log.warning("hybrid: moonshine unavailable (%s: %s) — running "
                         "pure faster-whisper", type(e).__name__, e)
+        self._fw_backend = None
+        self._fw_error: Exception | None = None
+
+        def load():
+            try:
+                self._fw_backend = FasterWhisperBackend(mcfg)
+            except Exception as e:  # noqa: BLE001
+                self._fw_error = e
+                log.error("hybrid: faster-whisper failed to load (%s)", type(e).__name__)
+
+        self._fw_thread = threading.Thread(target=load, daemon=True, name="whisper-load")
+        self._fw_thread.start()
+        if self._moon is None:
+            self._fw_thread.join()
+            if self._fw_backend is None:
+                raise self._fw_error or RuntimeError("faster-whisper failed to load")
+
+    @property
+    def _fw(self):
+        """The Whisper backend, waiting for its background load."""
+        self._fw_thread.join()
+        if self._fw_backend is None:
+            raise self._fw_error or RuntimeError("faster-whisper failed to load")
+        return self._fw_backend
+
+    @property
+    def whisper_ready(self) -> bool:
+        return self._fw_backend is not None
 
     # -- surface parity with the other backends -------------------------------
 
     @property
     def device_used(self) -> str:
-        return self._fw.device_used
+        return self._fw.device_used if self.whisper_ready else "loading"
 
     @device_used.setter
     def device_used(self, v):  # the protocol declares it as an attribute
@@ -56,7 +86,7 @@ class HybridBackend(AsrBackend):
 
     @property
     def compute_used(self) -> str:
-        base = self._fw.compute_used
+        base = self._fw.compute_used if self.whisper_ready else "-"
         return f"{base}+moonshine" if self._moon else base
 
     @compute_used.setter
@@ -83,12 +113,21 @@ class HybridBackend(AsrBackend):
 
     # -- decoding -------------------------------------------------------------
 
-    def transcribe(self, audio: np.ndarray) -> list[Segment]:
+    def transcribe(self, audio: np.ndarray,
+                   prompt: str | None = None) -> list[Segment]:
+        if prompt:
+            return self._fw.transcribe(audio, prompt=prompt)
         return self._fw.transcribe(audio)
 
     def transcribe_partial(self, audio: np.ndarray,
                            prompt: str | None = None) -> list[Segment]:
-        if self._moon is not None and self._english():
+        # On a GPU, Whisper decodes a live window in ~0.25 s whatever its
+        # length and hears accents far better than Moonshine; Moonshine only
+        # covers the seconds before Whisper has finished loading. On CPU
+        # Whisper partials cost ~0.8 s, so Moonshine keeps them.
+        whisper_live = (self.whisper_ready
+                        and self._fw_backend.device_used == "cuda")
+        if self._moon is not None and self._english() and not whisper_live:
             return self._moon.transcribe_partial(audio, prompt=prompt)
         return self._fw.transcribe_partial(audio, prompt=prompt)
 

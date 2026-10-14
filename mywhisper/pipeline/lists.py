@@ -31,6 +31,25 @@ _CARDINALS = ["one", "two", "three", "four", "five", "six",
 
 # Sentence-ish split that keeps the delimiter, so re-assembly is lossless.
 _SPLIT = re.compile(r"(?<=[.!?\n])\s+")
+_DIGIT_MARKER = re.compile(r"(?<![\w./])([1-9]|10)[.)][ \t]+")
+
+
+def _digit_list(text: str) -> str:
+    marks = list(_DIGIT_MARKER.finditer(text))
+    if len(marks) < 3 or [int(m[1]) for m in marks] != list(range(1, len(marks) + 1)):
+        return text
+    prefix = text[:marks[0].start()].rstrip()
+    if prefix and not (prefix.endswith(":") or re.search(
+            r"\b(?:for|need|buy|list|steps|items|groceries)\s*$", prefix, re.I)):
+        return text
+    items = []
+    for i, match in enumerate(marks):
+        stop = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+        body = text[match.end():stop].strip()
+        if not body:
+            return text
+        items.append(f"{i + 1}. {body[:1].upper() + body[1:]}")
+    return (prefix + "\n" if prefix else "") + "\n".join(items)
 
 
 def _marker_index(clause: str) -> tuple[int, int] | None:
@@ -51,6 +70,12 @@ def _marker_index(clause: str) -> tuple[int, int] | None:
 
 
 def numbered_lists(text: str) -> str:
+    # Quoted examples and code are literal, not lists to restructure.
+    if any(char in text for char in ('"', '“', '`')):
+        return text
+    digit = _digit_list(text)
+    if digit != text:
+        return digit
     clauses = _SPLIT.split(text)
     if len(clauses) < 3:
         return text

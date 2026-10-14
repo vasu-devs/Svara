@@ -117,12 +117,12 @@ class TestInjectorFacade(unittest.TestCase):
             injector.inject("hello", UtteranceContext())
         self.assertEqual(sent, ["hello", "hello "])
 
-    def test_streaming_is_refused_for_terminals(self):
+    def test_streaming_is_refused_for_elevated_windows_only(self):
         injector = TextInjector(dict(BASE))
-        self.assertFalse(injector.streams_into(
-            UtteranceContext(is_terminal=True)))
+        self.assertTrue(injector.streams_into(UtteranceContext(is_terminal=True)))
+        self.assertFalse(injector.streams_into(UtteranceContext(is_elevated=True)))
         self.assertEqual(
-            injector.inject_stream("hi", UtteranceContext(is_terminal=True)), 0)
+            injector.inject_stream("hi", UtteranceContext(is_elevated=True)), 0)
 
     def test_streaming_is_refused_for_elevated_targets(self):
         injector = TextInjector(dict(BASE))

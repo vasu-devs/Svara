@@ -26,10 +26,14 @@ model:
                               #   (faster-whisper >=1.1). Silently falls back if the
                               #   installed version rejects our arguments.
   batch_size: 8
+  unload_after_min: 0         # 0 = load the model at start and keep it. N = load it on the
+                              #   first hotkey (audio is buffered meanwhile) and free the RAM
+                              #   after N minutes without a dictation.
 
 recording:
   mode: hold_to_record        # hold_to_record:  hold key = talk · tap = cancel · DOUBLE-TAP = hands-free
                               # press_to_toggle: press hotkey → speak → press again to stop
+  toggle_taps: 1              # (toggle mode) 2 = DOUBLE-tap starts; a lone tap does nothing
   hotkey: right alt           # DOUBLE-TAP right alt = start hands-free → tap once = stop & type
                               #   hold right alt = push-to-talk. Fully suppressed (never opens app menus).
                               #   Fn is firmware-only on this laptop (probed twice) and cannot be hooked.
@@ -52,6 +56,8 @@ recording:
   preroll_ms: 1000            # audio kept from BEFORE you press the hotkey (never lose the first word)
   max_seconds: 600            # safety cap per utterance (10 min — was cutting you off at 2)
   auto_stop:                  # (toggle mode) stop automatically after you go silent
+    hands_free_silence_ms: 0  # hands-free (double-tap lock or toggle mode): finish after this
+                              #   even with `enabled: false`. 0 = never; 8000 = 8 s of quiet
     enabled: false            # off by default — YOU decide when it stops; set true if you
     silence_ms: 900           #   want it to auto-finish ~0.9s after you stop talking
     min_speech_ms: 300
@@ -70,6 +76,8 @@ logging:
   max_log_mb: 10              # log rotation cap
 
 injection:
+  inline_preview: true        # (Linux/Wayland) show the live words inline at the caret as an
+                              #   input-method preview where the app supports it, commit once
   method: type                # type  = Win32 SendInput, char-perfect, clipboard untouched
                               # paste = clipboard + Ctrl+V, fastest for long text
   append_space: true          # trailing space so consecutive dictations join nicely
@@ -111,10 +119,15 @@ locale:                       # how your words are WRITTEN (rules only — no mo
 cleanup:
   level: light                # ONE dial for cleanup intensity:
                               #   none   = verbatim (your dictionary rules still apply)
-                              #   light  = remove um/uh/erm (default)
+                              #   light  = remove fillers + explicit corrections (default)
                               #   medium = + "scratch that" retractions
                               #   high   = + AI rewrite when Ollama is running
   strip_fillers: true         # cheap regex removal of um/uh/erm...
+  self_corrections: true      # "at 5, no no, at 4" → "at 4". Keeps words in the
+                              # preview until you stop, then inserts the clean result.
+                              # Disable with light cleanup for immediate live typing.
+  developer_syntax: false    # enable for "snake case user name end name" → user_name
+                              # "file name main dot py end file" → main.py
   expressive:                 # 🔊 voice-aware formatting
     enabled: true
     caps_ratio: 2.5           # segment ≥2.5× louder than the utterance median → TYPES IN CAPS
@@ -139,6 +152,8 @@ cleanup:
       Output ONLY the cleaned text.
 
 dictionary:                   # YOUR words — tray icon ▸ Dictionary ▸ Edit… then Reload
+  libraries: []               # optional local/shared JSON vocabulary libraries;
+                              # personal entries win. Reload dictionary to refresh.
                               # (quick-adds land in dictionary.yaml next to this file;
                               #  both are merged at load)
   words: []                   # names/jargon Whisper should recognize better, e.g.:
@@ -166,6 +181,9 @@ history:
   retention_hours: 0          # 0 = keep forever · 24 = auto-delete after a day
 
 context:                      # look at the app you're dictating INTO (all local)
+  writing_style: auto         # auto | formal | casual | very_casual | excited
+  formatting_styles: {}       # exact exe overrides chat/default, e.g.
+                              # {chat: casual, outlook.exe: formal}
   enabled: true
   title_hotwords: true        # window-title names/nouns boost recognition, e.g. the
                               #   repo or person's name in the title bar
@@ -250,6 +268,11 @@ streaming:
   max_window_s: 30            # cap on the re-decoded window; past it, trimming gets more
                               #   aggressive so speech with no pauses can't grow it
                               #   forever (0 = no cap)
+  retype_on_finish: true      # live mode: the final full-utterance pass is more accurate
+                              #   than the short live windows. When it disagrees with words
+                              #   already on screen, Svara backspaces over them and retypes
+                              #   the corrected text (a brief flicker). false = never touch
+                              #   what was typed; only the tail is added.
   context_prompt_words: 0     # feed the last N typed words back to the decoder as
                               #   context. 0 = off — measure with --bench first; it can
                               #   improve continuation OR induce repetition.
@@ -286,7 +309,7 @@ ui:
   sounds: true                # beep on record start/stop
   tray: true                  # system tray icon with theme picker + toggles
   overlay: true               # on-screen "Listening…" pill with live mic level
-  theme: minimal-dark         # minimal-dark | minimal-light | matrix | cyberpunk
+  theme: svara         # svara | minimal-dark | minimal-light | matrix | cyberpunk
                               # | sakura | evangelion | saiyan | vaporwave
                               # (also switchable live: tray icon ▸ Theme — that choice persists)
   theme_overrides: {}         # tweak any theme key, e.g.:

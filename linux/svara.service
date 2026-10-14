@@ -1,0 +1,15 @@
+[Unit]
+Description=Svara dictation (always on; the speech model loads on the first hotkey and unloads after idle)
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitIntervalSec=0
+
+[Service]
+ExecStart=%h/Svara/run.sh
+Restart=always
+RestartSec=1
+RestartSteps=6
+RestartMaxDelaySec=30
+
+[Install]
+WantedBy=graphical-session.target

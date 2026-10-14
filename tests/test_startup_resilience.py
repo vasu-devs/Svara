@@ -182,6 +182,39 @@ class TestTranscriberSurvivesAFailedLoad(unittest.TestCase):
                 Transcriber(dict(self.MCFG), required=True)
 
 
+class TestTranscriberLoadsOnDemand(unittest.TestCase):
+    """model.unload_after_min: nothing in RAM until the first hotkey, and
+    the RAM given back after a quiet spell."""
+
+    MCFG = TestTranscriberSurvivesAFailedLoad.MCFG
+
+    def setUp(self):
+        global Transcriber
+        from mywhisper.transcriber import Transcriber
+
+    def test_lazy_skips_the_load_and_ensure_does_it_once(self):
+        create = mock.Mock(return_value=mock.Mock(device_used="cpu", compute_used="int8"))
+        with mock.patch("mywhisper.asr.create", create):
+            t = Transcriber(dict(self.MCFG), lazy=True)
+            self.assertFalse(t.ready)
+            create.assert_not_called()
+            self.assertFalse(t.retry(min_interval_s=0), "idle must not load behind the user's back")
+            self.assertTrue(t.ensure())
+            self.assertTrue(t.ensure())
+        self.assertEqual(create.call_count, 1)
+        self.assertTrue(t.ready)
+
+    def test_unload_frees_and_the_next_ensure_reloads(self):
+        create = mock.Mock(return_value=mock.Mock(device_used="cpu", compute_used="int8"))
+        with mock.patch("mywhisper.asr.create", create):
+            t = Transcriber(dict(self.MCFG))
+            t.unload()
+            self.assertFalse(t.ready)
+            self.assertFalse(t.retry(min_interval_s=0))
+            self.assertTrue(t.ensure())
+        self.assertEqual(create.call_count, 2)
+
+
 @unittest.skipUnless(HAVE_AUDIO, "sounddevice unavailable")
 class TestHotkeyArmsWithoutAMicrophone(unittest.TestCase):
     """The point of all of the above: the hotkey still gets armed."""

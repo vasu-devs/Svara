@@ -36,3 +36,4 @@ docs/
 # app's own directory. 1.3 GB of NVIDIA redistributables that are fetched from
 # the release asset when a user opts into GPU — never source, never committed.
 /cuda/
+.venv-train/

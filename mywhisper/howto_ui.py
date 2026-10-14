@@ -234,6 +234,57 @@ def _build_history(root, app):
     q_entry.pack(side="right", fill="x", expand=True, padx=(12, 0),
                  ipady=4, ipadx=6)
 
+    insight = tk.Label(win, text="", bg=BG, fg=SUB, justify="left",
+                       wraplength=600, font=("Segoe UI", 9))
+    insight.pack(fill="x", padx=16, pady=(0, 6))
+    activity = []
+    selection = [-1]
+    chart = tk.Canvas(win, height=38, bg=BG, highlightthickness=1,
+                      highlightbackground=CARD, highlightcolor=ACCENT, takefocus=1)
+    chart.pack(fill="x", padx=16)
+    chart_hint = tk.Label(win, text="Daily words · hover or use arrow keys · UTC",
+                          bg=BG, fg=SUB, font=("Segoe UI", 8), anchor="w")
+    chart_hint.pack(fill="x", padx=16, pady=(2, 4))
+
+    def draw_activity(*_):
+        chart.delete("all")
+        if not activity:
+            return
+        step = max(1, chart.winfo_width()) / len(activity)
+        peak = max(1, max(counts["words"] for _, counts in activity))
+        for index, (_, counts) in enumerate(activity):
+            height = 2 + 31 * counts["words"] / peak
+            chart.create_rectangle(index * step + 1, 36 - height, (index + 1) * step - 1, 36,
+                                   fill=ACCENT if index == selection[0] else CARD_ON, outline="")
+
+    def select_day(index):
+        if not activity:
+            return
+        selection[0] = max(0, min(len(activity) - 1, index))
+        date, counts = activity[selection[0]]
+        chart_hint.config(text=f"{date} UTC · {counts['words']:,} words · "
+                               f"{counts['dictations']:,} dictations")
+        draw_activity()
+
+    chart.bind("<Configure>", draw_activity)
+    chart.bind("<Button-1>", lambda _event: chart.focus_set())
+    chart.bind("<Motion>", lambda event: select_day(int(event.x * len(activity) / max(1, chart.winfo_width()))))
+    chart.bind("<Left>", lambda _event: select_day(selection[0] - 1))
+    chart.bind("<Right>", lambda _event: select_day(selection[0] + 1))
+    chart.bind("<FocusIn>", lambda _event: select_day(len(activity) - 1 if selection[0] < 0 else selection[0]))
+
+    def refresh_insights():
+        stats = app.history.usage(30)
+        apps = ", ".join(item["app"] for item in stats["apps"][:3]) or "—"
+        insight.config(text=f"Past 30 days · {stats['dictations']:,} dictations · "
+                            f"{stats['words']:,} words · {stats['active_days']} active days (UTC)\n"
+                            f"Most used: {apps}")
+        activity[:] = stats["daily"].items()
+        if selection[0] >= 0:
+            select_day(selection[0])
+        else:
+            draw_activity()
+
     box = tk.Listbox(win, bg=CARD, fg=FG, relief="flat", bd=0,
                      font=("Segoe UI", 10), selectbackground=CARD_ON,
                      selectforeground=ACCENT, activestyle="none")
@@ -267,16 +318,31 @@ def _build_history(root, app):
 
     foot = tk.Frame(win, bg=BG)
     foot.pack(fill="x", padx=16, pady=(0, 14))
-    tk.Label(foot, text="Double-click a row to copy it",
+    tk.Label(foot, text="Double-click to copy",
              bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left")
     tk.Button(foot, text="Clear history", bg=CARD, fg=FG, bd=0, padx=14,
               pady=5, cursor="hand2", font=("Segoe UI", 9),
-              command=lambda: (app.history.clear(), refresh())
+              command=lambda: (app.history.clear(), refresh(), refresh_insights())
               ).pack(side="right", padx=(8, 0))
     tk.Button(foot, text="Copy selected", bg=ACCENT, fg=BTN_TEXT, bd=0,
               padx=14, pady=5, cursor="hand2",
               font=("Segoe UI Semibold", 9),
               command=copy_selected).pack(side="right")
+    def export_history():
+        from tkinter import filedialog, messagebox
+        path = filedialog.asksaveasfilename(parent=win, title="Export retained dictation history",
+                                          defaultextension=".json", filetypes=[("JSON history", "*.json")])
+        if not path:
+            return
+        try:
+            count = app.history.export_json(path)
+            app._notify(f"Exported {count} retained history entries.")
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Could not export history", str(exc), parent=win)
+    tk.Button(foot, text="Export…", bg=CARD, fg=FG, bd=0, padx=12, pady=5,
+              command=export_history, font=("Segoe UI", 9)).pack(side="right", padx=8)
+    refresh_insights()
+    win.bind("<F5>", lambda _event: (refresh(), refresh_insights()))
     refresh()
 
 
@@ -529,28 +595,48 @@ def _build_dictionary(root, app):
 
     def do_import():
         path = filedialog.askopenfilename(
-            parent=win, title="Import dictionary CSV",
-            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+            parent=win, title="Import vocabulary library or CSV",
+            filetypes=[("Svara library", "*.json"), ("CSV files", "*.csv")])
         if not path:
             return
-        report = import_csv(path, data)
-        save_dictionary(data)
+        import copy
+        from pathlib import Path
+        from tkinter import messagebox
+        from .libraries import load_library, merge_library
+        candidate = copy.deepcopy(data)
+        try:
+            report = (merge_library(candidate, load_library(path)) if Path(path).suffix.lower() == ".json"
+                      else import_csv(path, candidate))
+            if not save_dictionary(candidate):
+                raise OSError("Could not save your dictionary; no changes were applied.")
+        except (OSError, ValueError) as exc:
+            messagebox.showerror("Could not import vocabulary", str(exc), parent=win)
+            return
+        data.clear()
+        data.update(candidate)
         app.reload_dictionary(quiet=True)
         refresh()
         app._notify(report.summary())
 
     def do_export():
         path = filedialog.asksaveasfilename(
-            parent=win, title="Export dictionary CSV", defaultextension=".csv",
-            filetypes=[("CSV files", "*.csv")])
+            parent=win, title="Export personal vocabulary", defaultextension=".json",
+            filetypes=[("Svara library", "*.json"), ("CSV files", "*.csv")])
         if path:
-            n = export_csv(path, data)
-            app._notify(f"Exported {n} dictionary entries.")
+            from pathlib import Path
+            from tkinter import messagebox
+            from .libraries import export_library
+            try:
+                n = (export_library(path, data) if Path(path).suffix.lower() != ".csv"
+                     else export_csv(path, data))
+                app._notify(f"Exported {n} personal vocabulary entries.")
+            except (OSError, ValueError) as exc:
+                messagebox.showerror("Could not export vocabulary", str(exc), parent=win)
 
-    tk.Button(foot, text="Export CSV…", bg=CARD, fg=FG, bd=0, padx=14, pady=5,
+    tk.Button(foot, text="Export…", bg=CARD, fg=FG, bd=0, padx=14, pady=5,
               cursor="hand2", font=("Segoe UI", 9),
               command=do_export).pack(side="right", padx=(8, 0))
-    tk.Button(foot, text="Import CSV…", bg=CARD, fg=FG, bd=0, padx=14, pady=5,
+    tk.Button(foot, text="Import…", bg=CARD, fg=FG, bd=0, padx=14, pady=5,
               cursor="hand2", font=("Segoe UI", 9),
               command=do_import).pack(side="right")
     refresh()
@@ -718,12 +804,20 @@ def _toggle_scratchpad(root, app):
 
 def _build(root, app, first_run=False):
     import tkinter as tk
+    from tkinter import ttk
+
+    from .setup_ui import (_CPU_OK, AMBER, BTN, BTN_HOVER, MODELS, RULE,
+                           _hotkey_label, _make_wave_frames)
+    from .settings_ui import _style
+    from .ui_fonts import DEVANAGARI, mono_family, serif_family, ui_family
 
     for w in root.winfo_children():
         w.destroy()
 
     cfg = app.cfg
     hk = cfg["recording"].get("hotkey", "right alt")
+    hk_label = _hotkey_label(hk)
+    SERIF, UI, MONO = serif_family(), ui_family(), mono_family(root)
 
     root.title("Svara — You're all set" if first_run else "Svara")
     root.configure(bg=BG)
@@ -746,10 +840,10 @@ def _build(root, app, first_run=False):
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     # Never wider or taller than the screen it has to fit on: at 200% on a
     # small panel the scaled size would otherwise exceed the display.
-    W = min(_s(660), sw - _s(60))
-    H = min(_s(760), sh - 90)
+    W = min(_s(680), sw - _s(60))
+    H = min(_s(790), sh - 90)
     root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
-    root.minsize(min(_s(480), sw - _s(60)), min(_s(600), sh - 90))
+    root.minsize(min(_s(500), sw - _s(60)), min(_s(600), sh - 90))
     root.deiconify()
     try:
         root.attributes("-topmost", True)
@@ -765,106 +859,140 @@ def _build(root, app, first_run=False):
             root.iconbitmap(ic)
     except Exception:  # noqa: BLE001
         pass
+    _style(root)
+    # The combobox's drop-down list is a plain Listbox that ignores ttk styles.
+    for opt, val in (("*TCombobox*Listbox.background", CARD),
+                     ("*TCombobox*Listbox.foreground", FG),
+                     ("*TCombobox*Listbox.selectBackground", CARD_ON),
+                     ("*TCombobox*Listbox.selectForeground", FG),
+                     ("*TCombobox*Listbox.font", f"{{{UI}}} 10")):
+        try:
+            root.option_add(opt, val)
+        except Exception:  # noqa: BLE001
+            pass
 
-    # --- animated strings banner (same look as setup) ---
-    banner = None
+    PX = _s(30)
+
+    # --- header: the strings mark, the wordmark, the version ---
+    head = tk.Frame(root, bg=BG)
+    head.pack(fill="x", padx=PX, pady=(_s(18), 0))
     try:
         from PIL import ImageTk
 
-        from .setup_ui import _make_wave_frames
         frames = [ImageTk.PhotoImage(f, master=root)
-                  for f in _make_wave_frames(W - _s(52), _s(44), 24)]
-        banner = tk.Label(root, image=frames[0], bg=BG, bd=0)
-        banner._frames = frames  # keep references alive
-        banner.pack(fill="x", padx=26, pady=(18, 4))
+                  for f in _make_wave_frames(_s(40), _s(20), 24)]
+        mark = tk.Label(head, image=frames[0], bg=BG, bd=0)
+        mark._frames = frames  # keep references alive
+        mark.pack(side="left", padx=(0, 8))
         idx = [0]
 
         def _anim():
-            if not banner.winfo_exists():
+            if not mark.winfo_exists():
                 return
             idx[0] = (idx[0] + 1) % len(frames)
-            banner.configure(image=frames[idx[0]])
+            mark.configure(image=frames[idx[0]])
             root.after(70, _anim)
 
         root.after(200, _anim)
     except Exception:  # noqa: BLE001
         pass
+    tk.Label(head, text="Svara", bg=BG, fg=FG, font=(UI, 12, "bold")).pack(side="left")
+    tk.Label(head, text="स्वर", bg=BG, fg=SUB, font=(DEVANAGARI, 10)).pack(side="left", padx=(6, 0))
+    from . import __version__
+    tk.Label(head, text=f"v{__version__}", bg=BG, fg=SUB, font=(MONO, 9)).pack(side="right")
 
-    tk.Label(root, text="You're all set ✓" if first_run else "Svara is running",
-             bg=BG, fg=FG, font=("Segoe UI Semibold", 20), anchor="w"
-             ).pack(fill="x", padx=26)
+    # --- the words ---
+    tk.Label(root, text="You\u2019re all set." if first_run else "Svara is running.",
+             bg=BG, fg=FG, font=(SERIF, 28), anchor="w"
+             ).pack(fill="x", padx=PX, pady=(_s(14), 0))
     # No wraplength at all here originally, so this never wrapped — it just ran
     # off the edge. The first-run copy is the longer of the two and was the one
     # that lost its ending.
     subtitle = tk.Label(root, text=(
-        "Try it right here — your words stream in live while "
+        "Try it right here: your words stream in live while "
         "the pill hovers on screen." if first_run else
-        "It types wherever your cursor is — in any app."),
-        bg=BG, fg=SUB, font=("Segoe UI", 11), anchor="w", justify="left")
-    subtitle.pack(fill="x", padx=26, pady=(0, 10))
+        "It types wherever your cursor is, in any app."),
+        bg=BG, fg=SUB, font=(SERIF, 12, "italic"), anchor="w", justify="left")
+    subtitle.pack(fill="x", padx=PX, pady=(2, _s(12)))
     _wrap_to_own_width(subtitle)
 
-    steps = tk.Frame(root, bg=CARD)
-    steps.pack(fill="x", padx=26)
+    # --- the three steps: numeral, verb, keycap, the rest ---
+    steps = tk.Frame(root, bg=BG)
+    steps.pack(fill="x", padx=PX)
+
+    def _keycap(parent, text):
+        return tk.Label(parent, text=text, bg=CARD, fg=FG, font=(MONO, 9),
+                        padx=7, pady=1, highlightthickness=1,
+                        highlightbackground=RULE)
+
     # Step 3 used to carry three clauses on one unwrapped line, so the last of
     # them ("quick tap = cancel") ran off the right edge and the user never saw
     # how to cancel. The extras move to their own quiet line underneath.
-    for n, a, b, extra in (
-            (" 1 ", "Double-tap", f"{hk}  — Svara starts listening", ""),
-            (" 2 ", "Speak", "your words type at the cursor", ""),
-            (" 3 ", "Tap", f"{hk}  again to finish",
+    for n, verb, key, rest, extra in (
+            ("01", "Double-tap", hk_label, "and Svara starts listening", ""),
+            ("02", "Speak", None, "and your words type at the cursor", ""),
+            ("03", "Tap", hk_label, "again to finish",
              "hold it instead to push-to-talk  ·  a quick tap cancels")):
-        row = tk.Frame(steps, bg=CARD)
-        row.pack(fill="x", padx=14, pady=(5, 0))
-        tk.Label(row, text=n + a, bg=CARD, fg=ACCENT,
-                 font=("Segoe UI Semibold", 11)).pack(side="left")
-        tk.Label(row, text="  " + b, bg=CARD, fg=FG, font=("Segoe UI", 11),
-                 wraplength=W - _s(120), justify="left").pack(side="left")
+        row = tk.Frame(steps, bg=BG)
+        row.pack(fill="x", pady=(_s(5), 0))
+        tk.Label(row, text=n, bg=BG, fg=ACCENT, font=(MONO, 9), width=3,
+                 anchor="w").pack(side="left")
+        tk.Label(row, text=verb, bg=BG, fg=FG, font=(UI, 11, "bold")).pack(side="left")
+        if key:
+            _keycap(row, key).pack(side="left", padx=(8, 0))
+        rest_lbl = tk.Label(row, text=rest, bg=BG, fg=FG, font=(UI, 11),
+                            justify="left", anchor="w")
+        rest_lbl.pack(side="left", padx=(8, 0), fill="x", expand=True)
+        _wrap_to_own_width(rest_lbl)
         if extra:
-            tk.Label(steps, text=extra, bg=CARD, fg=SUB,
-                     font=("Segoe UI", 9), wraplength=W - _s(80),
-                     justify="left").pack(anchor="w", padx=(46, 14),
-                                          pady=(1, 4))
+            ex = tk.Label(steps, text=extra, bg=BG, fg=SUB, font=(UI, 9),
+                          justify="left", anchor="w")
+            ex.pack(fill="x", padx=(_s(30), 0), pady=(1, 2))
+            _wrap_to_own_width(ex)
 
     # --- settings: everything the tray offers, also reachable right here —
     # this window (opened by double-clicking Svara.exe again) is how most
     # people actually find their way back in, so "change my model" must not
-    # require ever discovering the tray icon. ---
+    # require ever discovering the tray icon. One aligned control column. ---
+    tk.Frame(root, bg=RULE, height=1).pack(fill="x", padx=PX, pady=(_s(14), _s(10)))
     settings = tk.Frame(root, bg=BG)
-    settings.pack(fill="x", padx=26, pady=(12, 0))
+    settings.pack(fill="x", padx=PX)
+    settings.columnconfigure(2, weight=1)
+    rows = {"i": 0}
 
-    def _dropdown_row(parent, label_text, options, current, on_pick, hint=None):
-        """A labeled OptionMenu row, styled like the rest of this window.
-        options: [(value, label), ...]. current: the value to preselect."""
-        row = tk.Frame(parent, bg=BG)
-        row.pack(fill="x", pady=3)
-        tk.Label(row, text=label_text, bg=BG, fg=SUB, width=9, anchor="w",
-                 font=("Segoe UI", 9, "bold")).pack(side="left")
-        labels = {v: lbl for v, lbl in options}
-        var = tk.StringVar(master=row, value=labels.get(current, options[0][1]))
+    def _label(text, r):
+        tk.Label(settings, text=text, bg=BG, fg=SUB, font=(MONO, 9), anchor="w",
+                 width=10).grid(row=r, column=0, sticky="w", padx=(0, 10), pady=4)
 
-        def _pick(label):
-            value = next((v for v, lbl in options if lbl == label), None)
-            on_pick(value)
+    def _hint(text, r):
+        h = tk.Label(settings, text=text, bg=BG, fg=SUB, font=(UI, 9),
+                     anchor="w", justify="left")
+        h.grid(row=r, column=2, sticky="ew", padx=(12, 0))
+        _wrap_to_own_width(h)
+        return h
 
-        opt = tk.OptionMenu(row, var, *[lbl for _v, lbl in options], command=_pick)
-        opt.configure(bg=CARD, fg=FG, activebackground=CARD,
-                      activeforeground=ACCENT, highlightthickness=0, bd=0,
-                      font=("Segoe UI", 10), indicatoron=True)
-        opt["menu"].configure(bg=CARD, fg=FG, activebackground=CARD_ON,
-                              activeforeground=ACCENT, bd=0)
-        opt.pack(side="left", padx=(10, 0))
+    def _dropdown_row(label_text, options, current, on_pick, hint=None):
+        """A labeled read-only combobox row. options: [(value, label), ...]."""
+        r = rows["i"]; rows["i"] += 1
+        _label(label_text, r)
+        labels = [lbl for _v, lbl in options]
+        var = tk.StringVar(master=settings, value=next(
+            (lbl for v, lbl in options if v == current), labels[0] if labels else ""))
+        box = ttk.Combobox(settings, values=labels, textvariable=var,
+                           state="readonly", style="S.TCombobox", width=24,
+                           font=(UI, 10))
+        box.grid(row=r, column=1, sticky="w", pady=4)
+
+        def _picked(_e=None):
+            for v, lbl in options:
+                if lbl == var.get():
+                    on_pick(v)
+                    return
+
+        box.bind("<<ComboboxSelected>>", _picked)
         if hint:
-            # Last in its row and behind a label and a dropdown, so how much
-            # room it has depends on the window width — fixing it here covers
-            # every settings row at once rather than one hint at a time.
-            hint_lbl = tk.Label(row, text=hint, bg=BG, fg=SUB,
-                                font=("Segoe UI", 9), justify="left")
-            hint_lbl.pack(side="left", padx=(10, 0), fill="x", expand=True)
-            _wrap_to_own_width(hint_lbl)
+            _hint(hint, r)
         return var
-
-    from .setup_ui import _CPU_OK, MODELS
 
     # Model/Device switches run in a background thread (app.py) — the
     # Language row (and the Device row's own value) can go stale for the
@@ -898,21 +1026,17 @@ def _build(root, app, first_run=False):
     # load on CPU instead (tens of seconds per utterance).
     offered_models = MODELS if getattr(app, "gpu_available", False) else [
         m for m in MODELS if m[0] in _CPU_OK]
-    _dropdown_row(
-        settings, "Model",
-        [(value, name) for value, name, _sub in offered_models],
-        cfg["model"]["name"], _pick_model)
+    _dropdown_row("model", [(value, name) for value, name, _sub in offered_models],
+                  cfg["model"]["name"], _pick_model)
 
     device_opts = [("cpu", "CPU")]
     if getattr(app, "gpu_available", False):
         device_opts.append(("cuda", "GPU (NVIDIA)"))
-    _dropdown_row(settings, "Device", device_opts,
-                 app.transcriber.device_used, _pick_device)
+    _dropdown_row("device", device_opts, app.transcriber.device_used, _pick_device)
 
-    _dropdown_row(
-        settings, "Streaming",
-        [("live", "Live"), ("preview", "Preview"), ("off", "Off")],
-        cfg["streaming"]["mode"], app.set_streaming_mode)
+    _dropdown_row("streaming",
+                  [("live", "Live"), ("preview", "Preview"), ("off", "Off")],
+                  cfg["streaming"]["mode"], app.set_streaming_mode)
 
     HOTKEYS = [("right alt", "Right Alt"), ("right ctrl", "Right Ctrl"),
                ("f8", "F8"), ("caps lock", "Caps Lock"),
@@ -922,36 +1046,35 @@ def _build(root, app, first_run=False):
     cur_hk = cfg["recording"].get("hotkey", "right alt")
     if not any(v == cur_hk for v, _ in HOTKEYS):
         HOTKEYS.insert(0, (cur_hk, cur_hk))  # custom key from config stays offered
-    _dropdown_row(settings, "Hotkey", HOTKEYS, cur_hk,
-                 lambda v: (app.set_hotkey(v),
-                            root.after(200, lambda: _build(root, app))),
-                 hint="switches instantly — no restart")
+    _dropdown_row("hotkey", HOTKEYS, cur_hk,
+                  lambda v: (app.set_hotkey(v),
+                             root.after(200, lambda: _build(root, app))),
+                  hint="switches instantly, no restart")
 
     if getattr(app, "is_multilingual", True):
-        cur = app.current_language
-        _dropdown_row(settings, "Language", LANGS, cur, app.set_language,
-                     hint="auto-detect just works — pick one to lock it")
+        _dropdown_row("language", LANGS, app.current_language, app.set_language,
+                      hint="auto-detect just works; pick one to lock it")
     else:
-        row = tk.Frame(settings, bg=BG)
-        row.pack(fill="x", pady=3)
-        tk.Label(row, text="Language", bg=BG, fg=SUB, width=9, anchor="w",
-                 font=("Segoe UI", 9, "bold")).pack(side="left")
-        tk.Label(row, text="English (this model is English-tuned — pick "
-                          "\"Large v3 Turbo\" above for 90+ languages)",
-                 bg=BG, fg=SUB, font=("Segoe UI", 9)).pack(side="left",
-                                                           padx=(10, 0))
+        r = rows["i"]; rows["i"] += 1
+        _label("language", r)
+        lang_note = tk.Label(settings, text="English. This model is English-tuned; "
+                             "pick Large v3 Turbo above for 90+ languages.",
+                             bg=BG, fg=SUB, font=(UI, 9), anchor="w", justify="left")
+        lang_note.grid(row=r, column=1, columnspan=2, sticky="ew", pady=4)
+        _wrap_to_own_width(lang_note)
 
     # --- quick-add to the personal dictionary: names/jargon Svara mishears —
     # the single highest-leverage accuracy fix a user can make. ---
-    row = tk.Frame(settings, bg=BG)
-    row.pack(fill="x", pady=3)
-    tk.Label(row, text="Dictionary", bg=BG, fg=SUB, width=9, anchor="w",
-             font=("Segoe UI", 9, "bold")).pack(side="left")
-    word_var = tk.StringVar(master=row)
-    word_entry = tk.Entry(row, textvariable=word_var, bg=CARD, fg=FG,
-                          relief="flat", insertbackground=ACCENT,
-                          font=("Segoe UI", 10), width=22)
-    word_entry.pack(side="left", padx=(10, 0), ipady=3, ipadx=6)
+    r = rows["i"]; rows["i"] += 1
+    _label("dictionary", r)
+    cell = tk.Frame(settings, bg=BG)
+    cell.grid(row=r, column=1, sticky="w", pady=4)
+    word_var = tk.StringVar(master=cell)
+    word_entry = tk.Entry(cell, textvariable=word_var, bg=CARD, fg=FG,
+                          relief="flat", insertbackground=AMBER, insertwidth=2,
+                          font=(UI, 10), width=18, highlightthickness=1,
+                          highlightbackground=RULE, highlightcolor=AMBER)
+    word_entry.pack(side="left", ipady=4, ipadx=6)
 
     def _add_word(*_):
         w = word_var.get().strip()
@@ -960,34 +1083,19 @@ def _build(root, app, first_run=False):
             word_var.set("")
 
     word_entry.bind("<Return>", _add_word)
-    tk.Button(row, text="Add word", bg=CARD, fg=ACCENT, bd=0, padx=10, pady=3,
-              cursor="hand2", font=("Segoe UI", 9), command=_add_word
-              ).pack(side="left", padx=(6, 0))
-    # Shortened and clipped-proof: the old copy ran off the right edge, so the
-    # user saw "a name Svara mishear" and nothing else.
-    hint = tk.Label(row, text="a name it mishears?", bg=BG, fg=SUB,
-                    font=("Segoe UI", 9), wraplength=_s(170),
-                    justify="left")
-    # expand=True is load-bearing, not cosmetic: it is what makes pack give
-    # this label the row's leftover width, which _wrap_to_own_width then wraps
-    # the text to. This one is last in a row that already holds a label, an
-    # entry and a button, so what remains depends on how wide the window ended
-    # up — and on a small screen the window is clamped narrower than the design
-    # size, at which point any fixed wraplength is a guess. Scaling the
-    # constant was still a guess, just wrong less often.
-    hint.pack(side="left", padx=(10, 0), fill="x", expand=True)
-    _wrap_to_own_width(hint)
+    tk.Button(cell, text="Add", bg=CARD, fg=FG, activebackground=CARD_ON,
+              activeforeground=FG, bd=0, padx=12, pady=4, cursor="hand2",
+              font=(UI, 9, "bold"), command=_add_word).pack(side="left", padx=(6, 0))
+    _hint("a name it mishears?", r)
 
     # --- start with Windows: THE reliability setting. Svara only feels
     # dependable if the hotkey works after every reboot without the user
     # ever re-launching the exe — surface the switch where they'll see it. ---
     import sys as _sys
     if getattr(_sys, "frozen", False):
-        row = tk.Frame(settings, bg=BG)
-        row.pack(fill="x", pady=3)
-        tk.Label(row, text="Startup", bg=BG, fg=SUB, width=9, anchor="w",
-                 font=("Segoe UI", 9, "bold")).pack(side="left")
-        auto_var = tk.BooleanVar(master=row, value=bool(getattr(app, "autostart_enabled",
+        r = rows["i"]; rows["i"] += 1
+        _label("startup", r)
+        auto_var = tk.BooleanVar(master=settings, value=bool(getattr(app, "autostart_enabled",
                                                     False)))
 
         def _toggle_autostart():
@@ -995,29 +1103,29 @@ def _build(root, app, first_run=False):
             auto_var.set(bool(getattr(app, "autostart_enabled", False)))
 
         tk.Checkbutton(
-            row, text="Start Svara when Windows starts  (recommended)",
+            settings, text="Start Svara when Windows starts  (recommended)",
             variable=auto_var, command=_toggle_autostart,
             bg=BG, fg=FG, activebackground=BG, activeforeground=ACCENT,
-            selectcolor=CARD, font=("Segoe UI", 10), bd=0,
+            selectcolor=CARD, font=(UI, 10), bd=0,
             highlightthickness=0, cursor="hand2",
-        ).pack(side="left", padx=(10, 0))
+        ).grid(row=r, column=1, columnspan=2, sticky="w", pady=4)
 
-    # --- live test area ---
-    tk.Label(root, text=f"TRY IT — click below, double-tap  {hk} , and speak",
-             bg=BG, fg=SUB, font=("Segoe UI", 9, "bold"), anchor="w"
-             ).pack(fill="x", padx=26, pady=(14, 4))
-    box = tk.Text(root, bg=CARD, fg=FG, insertbackground=ACCENT,
-                  relief="flat", font=("Segoe UI", 12), wrap="word",
-                  padx=12, pady=10, height=4)
+    # --- live test area: a sheet of paper to dictate onto ---
+    tk.Label(root, text=f"TRY IT  ·  click below, double-tap {hk_label}, and speak",
+             bg=BG, fg=ACCENT, font=(MONO, 9), anchor="w"
+             ).pack(fill="x", padx=PX, pady=(_s(14), _s(6)))
+    box = tk.Text(root, bg=CARD, fg=FG, insertbackground=AMBER, insertwidth=2,
+                  relief="flat", font=(SERIF, 13), wrap="word",
+                  padx=14, pady=12, height=4, highlightthickness=1,
+                  highlightbackground=RULE, highlightcolor=AMBER)
 
     # Footer first, anchored to the bottom, THEN the expanding text box. The
     # other way round the box claims the remaining height and pushes the
     # version line and the Close button off the bottom edge — the same failure
     # the diff and scratchpad windows had.
     foot = tk.Frame(root, bg=BG)
-    foot.pack(side="bottom", fill="x", padx=26, pady=(10, 16))
-    box.pack(fill="both", expand=True, padx=26)
-    from . import __version__
+    foot.pack(side="bottom", fill="x", padx=PX, pady=(_s(10), _s(16)))
+    box.pack(fill="both", expand=True, padx=PX)
     # The BUTTON is packed first, deliberately. pack allocates in call order,
     # so an expand=True label placed ahead of it claims the whole row and the
     # button is then squeezed into whatever is left — 5px short of its own
@@ -1026,12 +1134,12 @@ def _build(root, app, first_run=False):
     # size control first and letting the flexible one absorb the remainder is
     # the order that cannot do that.
     tk.Button(foot, text="Finish  →" if first_run else "Close",
-              bg=ACCENT, fg=BTN_TEXT,
-              font=("Segoe UI Semibold", 10), bd=0, padx=22, pady=7,
-              cursor="hand2", command=root.withdraw).pack(side="right")
+              bg=BTN, fg=BTN_TEXT, activebackground=BTN_HOVER,
+              activeforeground=BTN_TEXT, font=(UI, 10, "bold"), bd=0,
+              padx=22, pady=8, cursor="hand2", command=root.withdraw).pack(side="right")
     version = tk.Label(foot, text=f"Svara v{__version__}  ·  {app.model_label}"
-                                  "  ·  more in the tray icon (near the clock)",
-                       bg=BG, fg=SUB, font=("Segoe UI", 9), anchor="w",
+                                  "  ·  more in the tray icon, near the clock",
+                       bg=BG, fg=SUB, font=(MONO, 9), anchor="w",
                        wraplength=W - _s(150), justify="left")
     version.pack(side="left", fill="x", expand=True)
     _wrap_to_own_width(version)
