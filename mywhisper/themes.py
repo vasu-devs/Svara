@@ -22,7 +22,7 @@ Theme keys:
   label_listening, label_locked, label_processing, done_prefix
 """
 
-DEFAULT = "minimal-dark"
+DEFAULT = "svara"
 
 _BASE = {
     "font_family": "Segoe UI",
@@ -43,7 +43,15 @@ _BASE = {
 }
 
 THEMES: dict[str, dict] = {
-    # ── modern minimal, sick AF ────────────────────────────────────────────
+    # ── the house theme: the pill from the website and the setup window ────
+    "svara": {
+        **_BASE,
+        "bg": "#1a1613", "border": "#2c2621", "text": "#efe9df",
+        "muted": "#8d847a", "dot": "#e8a33d", "accent": "#e8a33d",
+        "done": "#f2b85a",
+        "strings": ["#f2b85a", "#e8a33d", "#c1573a"],
+    },
+    # ── modern minimal ─────────────────────────────────────────────────────
     "minimal-dark": {
         **_BASE,
         "bg": "#101216", "border": "#23272f", "text": "#e8eaed",

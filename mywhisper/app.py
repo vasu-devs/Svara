@@ -9,26 +9,31 @@ import json
 import logging
 import os
 import queue
+import shutil
+import subprocess
 import sys
 import threading
 import time
 
 import numpy as np
 
-from .audio import Recorder
+from .audio import PORTAUDIO_LOCK, Recorder
 from .context import ContextProvider
 from .endpoint import should_finish
 from .history import History
 from .hotkey import create_listener, create_mouse_listener
+from .incremental import IncrementalFinalizer
 from .injection import TextInjector
 from .overlay import Overlay
 from .pipeline import CleanupPipeline, UtteranceContext
+from .pipeline.text_rules import apply_edit_commands, has_edit_command
 from .quickkeys import QuickKeys
 from .redact import E_STT_DECODE, E_STT_STREAM, redact, shape
 from .scratchpad import Scratchpad
-from .streaming import StreamState, align_remainder, make_policy
+from .streaming import LiveScreen, StreamState, align_remainder, make_policy, same_words
 from .transcriber import Transcriber
 from .transforms import CommandMode, Transformer
+from .voice_session import VoiceSession, matches as take_matches
 from .tray import Tray
 from .updater import Updater
 
@@ -60,7 +65,7 @@ try:
             _SR * 2, 2, 16, b"data", len(samples))
         return header + bytes(samples)
 
-    def _chime(freq: float, ms: int = 130, vol: float = 0.3):
+    def _chime(freq: float, ms: int = 130, vol: float = 0.3, to: float | None = None):
         key = (freq, ms, vol)
         wav = _TONE_CACHE.get(key)
         if wav is None:
@@ -74,12 +79,37 @@ try:
                 pass
 
         threading.Thread(target=_play, daemon=True).start()
-except ImportError:  # non-Windows dev machine
-    def _chime(freq: float, ms: int = 130, vol: float = 0.3):
-        pass
+except ImportError:  # Linux: the mic library plays too
+    def _chime(freq: float, ms: int = 130, vol: float = 0.3, to: float | None = None):
+        """One short warm "bloop": a low-mid tone that dips slightly in pitch
+        as it fades, rounded at both ends, with a quiet sub-octave so it sits
+        in the chest rather than the ears. ~180 ms. Off-thread."""
+        def _play():
+            try:
+                import sounddevice as sd
+                sr = 44100
+                n = int(sr * 0.18)
+                t = np.arange(n) / sr
+                f = freq * (0.86 ** (t / t[-1]))             # gentle dip, not a slide
+                phase = 2 * np.pi * np.cumsum(f) / sr
+                env = np.minimum(1.0, t / 0.008) * np.exp(-t / 0.07) \
+                    * np.minimum(1.0, (n - np.arange(n)) / (sr * 0.02))
+                wave = (np.sin(phase) + 0.5 * np.sin(phase / 2) + 0.08 * np.sin(2 * phase)) * env
+                with PORTAUDIO_LOCK:  # sd.play is not thread-safe (double free)
+                    sd.play((wave * vol * 0.55).astype(np.float32), sr, blocking=True)
+            except Exception:  # noqa: BLE001 — a chime must never matter
+                pass
+
+        threading.Thread(target=_play, daemon=True).start()
 
 
 class MyWhisperApp:
+    # Defaults so a partially built app (tests, --test) behaves: no on-demand
+    # unloading unless __init__ turned it on.
+    _unload_after_s = 0.0
+    _unload_timer = None
+    voice = None          # the voice-onboarding session while one is running
+
     def __init__(self, cfg: dict, no_tray: bool = False, transcriber=None,
                  show_welcome: bool = False, quiet_start: bool = False):
         self.cfg = cfg
@@ -111,6 +141,12 @@ class MyWhisperApp:
         from .paths import logs_dir
         self.recorder.set_spill_path(logs_dir() / "recovery.raw")
         self.injector = TextInjector(cfg["injection"], notify=self._notify)
+        # Wayland: an inline preview at the caret where the app supports it
+        # (text-input-v3), keystrokes elsewhere.
+        self.ime = None
+        if os.name != "nt" and bool(cfg["injection"].get("inline_preview", True)):
+            from .ime_wayland import ImePreview
+            self.ime = ImePreview()
         self.cleanup = CleanupPipeline(cfg["cleanup"], cfg.get("dictionary"),
                                        locale_cfg=cfg.get("locale"),
                                        context_cfg=cfg.get("context"))
@@ -171,6 +207,7 @@ class MyWhisperApp:
         self.overlay = Overlay(
             cfg["ui"],
             get_level=lambda: self.recorder.level,
+            get_bands=lambda: self.recorder.bands(),
             on_click=self._pill_clicked,
             on_cycle=self.cycle_theme,
             on_cycle_wave=self.cycle_wave,
@@ -182,8 +219,20 @@ class MyWhisperApp:
             ),
             on_move=lambda x, y: self._save_state(pos=[x, y]),
         )
-        # Reuse a transcriber already loaded during first-run setup, else load now.
-        self.transcriber = transcriber or Transcriber(cfg["model"])  # loads + warms up
+        # Reuse a transcriber already loaded during first-run setup, else load now
+        # — or, with model.unload_after_min, on the first hotkey.
+        self._unload_after_s = 60 * float(cfg["model"].get("unload_after_min", 0) or 0)
+        self.transcriber = transcriber or Transcriber(
+            cfg["model"], lazy=self._unload_after_s > 0)  # loads + warms up
+        self._unload_timer: threading.Timer | None = None
+        if self._unload_after_s:
+            # Load now, in the background, so the first dictation is instant;
+            # the idle timer frees everything after model.unload_after_min.
+            def _preload():
+                self.transcriber.ensure()
+                self.cleanup.llm.warm(self.cleanup.level)
+                self._schedule_unload()
+            threading.Thread(target=_preload, daemon=True, name="preload").start()
 
         self.hotkey = create_listener(
             cfg["recording"],
@@ -193,6 +242,9 @@ class MyWhisperApp:
             on_lock=self.on_lock,
             is_recording=lambda: self.recorder.recording,
         )
+        self.hotkey.on_onboard = self.toggle_onboarding   # FIFO `onboard` token (Linux)
+        self.hotkey.on_skip = self.skip_line                # FIFO `skip` token: the page's Skip
+        self.voice: VoiceSession | None = None             # the onboarding session, while on
         # Mouse-button push-to-talk (off unless recording.mouse_button is
         # set): same gestures on a side button, and live typing keeps
         # streaming while the button is held — a mouse hold eats no keystrokes.
@@ -482,6 +534,8 @@ class MyWhisperApp:
     def _notify(self, message: str):
         if self.tray:
             self.tray.notify(message)
+        elif os.name != "nt" and shutil.which("notify-send"):
+            subprocess.Popen(["notify-send", "-a", "Svara", "Svara", message])
         else:
             log.info("notify: %s", message)
 
@@ -529,6 +583,25 @@ class MyWhisperApp:
         self.cfg["cleanup"]["level"] = level
         self._save_state(cleanup_level=level)
         self._refresh_tray()
+
+    def set_self_corrections(self, enabled: bool):
+        self.cleanup.self_corrections_enabled = bool(enabled)
+        self.cfg["cleanup"]["self_corrections"] = bool(enabled)
+        self._save_state(self_corrections=bool(enabled))
+        self._refresh_tray()
+
+    def set_writing_style(self, style: str):
+        from .pipeline.writing_style import STYLES
+        if style not in STYLES:
+            return
+        self.cleanup.set_writing_style(style)
+        self.cfg["context"]["writing_style"] = style
+        self._save_state(writing_style=style)
+
+    def set_developer_syntax(self, enabled: bool):
+        self.cleanup.chain.get("developer_syntax").enabled = bool(enabled)
+        self.cfg["cleanup"]["developer_syntax"] = bool(enabled)
+        self._save_state(developer_syntax=bool(enabled))
 
     # -- hotkey rebind (live) -------------------------------------------------
 
@@ -847,10 +920,20 @@ class MyWhisperApp:
             return
         # Say why nothing is going to happen, rather than opening the pill and
         # swallowing the utterance. The monitor thread is retrying the load.
-        if not self.transcriber.ready:
+        if not self.transcriber.ready and not self._unload_after_s:
             self._notify("Still loading the speech model — try again in a "
                          "moment. (Check logs/mywhisper.log if this persists.)")
             return
+        # On-demand engine: load while the mic already records (the streamer
+        # and the worker wait for `ensure`); the LLM warms alongside.
+        if self._unload_timer is not None:
+            self._unload_timer.cancel()
+            self._unload_timer = None
+        if self._unload_after_s:
+            threading.Thread(target=self.transcriber.ensure, daemon=True,
+                             name="model-load").start()
+            threading.Thread(target=self.cleanup.llm.warm, args=(self.cleanup.level,),
+                             daemon=True, name="llm-warm").start()
         self._cap_warned = False
         # Context snapshot: which app gets this dictation (per-app rules,
         # injection strategy, locale), and its window title's proper nouns →
@@ -861,26 +944,93 @@ class MyWhisperApp:
         self.transcriber.cfg["context_hotwords"] = (
             ", ".join(hotwords) if hotwords else None)
         self.recorder.start()
+        if self.voice is not None:
+            # Onboarding take: the island keeps showing the line; no streaming.
+            self._stream_ctx = {"typed_total": 0, "mode": "off", "utterance": self._ctx,
+                                "take": True}
+            log.info("● recording a take…")
+            return
         self.overlay.show("listening")
-        # No sound here by design — the pill's appearance is the "you're being
-        # heard" cue; a tone on every single dictation start got old fast.
+        # No sound on a push-to-talk start by design — the pill is the cue and
+        # a tone on every start got old fast. A deliberate double-tap gets one.
+        if self.cfg["ui"]["sounds"] and int(self.cfg["recording"].get("toggle_taps", 1)) > 1:
+            _chime(300, 180, 0.34)   # one warm bloop: "listening"
         if self.tray:
             self.tray.set_recording(True)
         mode = self.cfg["streaming"]["mode"]
-        # A terminal must never receive a half-typed line it could submit, and
-        # an elevated window discards synthetic input entirely — both get one
-        # clean insertion at the end instead of live streaming.
+        # Whole-utterance cleanup no longer forces preview: live typing puts
+        # raw words down and the finalizer rewrites each sentence in place as
+        # it is polished. An elevated window discards synthetic input, so it
+        # gets one clean insertion at the end instead.
         if mode == "live" and not self.injector.streams_into(self._ctx):
             mode = "preview"
-            log.info("live typing disabled for %s (%s) — text is inserted when "
-                     "you finish", self._ctx.app or "this window",
-                     "elevated" if self._ctx.is_elevated else "terminal")
+            log.info("live typing disabled for %s (elevated) — text is inserted "
+                     "when you finish", self._ctx.app or "this window")
         self._stream_ctx = {"typed_total": 0, "mode": mode,
                             "utterance": self._ctx}
         if mode in ("preview", "live"):
             threading.Thread(target=self._streamer, args=(self._stream_ctx,),
                              daemon=True, name="streamer").start()
         log.info("● recording…")
+
+    # -- voice onboarding -------------------------------------------------------
+
+    def _voice_root(self):
+        from pathlib import Path
+        if os.name == "nt":
+            from .paths import base_dir
+            return base_dir() / "voice"
+        return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "svara" / "voice"
+
+    def toggle_onboarding(self):
+        """Start or pause the voice session: the island shows the line to
+        read, each hold of the key records one take, release saves it."""
+        if self.voice is not None:
+            self._notify(f"Voice onboarding paused at {self.voice.done}/{self.voice.total} lines. "
+                         "Run it again to continue.")
+            self.voice = None
+            if self.recorder.recording:
+                self.cancel_recording()   # the half-read line is not a take
+            self.overlay.hide()
+            return
+        self.voice = VoiceSession(self._voice_root())
+        log.info("voice onboarding: %d/%d lines done — listening hands-free",
+                 self.voice.done, self.voice.total)
+        threading.Thread(target=self.transcriber.ensure, daemon=True,
+                         name="model-load").start()   # the take check needs the live engine
+        self._show_prompt(announce=True)
+
+    def skip_line(self):
+        if self.voice is not None and not self.recorder.recording:
+            self.voice.skip()
+            self._show_prompt()
+
+    def _show_prompt(self, announce: bool = False, retry: bool = False):
+        cur = self.voice.current if self.voice else None
+        if cur is None:
+            self._notify("Voice onboarding complete — every line is recorded. "
+                         "Run bench/voice_measure.py to see the results.")
+            self.overlay.prompt("", "", state="complete", done=self.voice.total if self.voice else 0,
+                                total=self.voice.total if self.voice else 0,
+                                minutes=round(self.voice.seconds / 60, 1) if self.voice else 0,
+                                styles=self.voice.progress() if self.voice else [])
+            self.voice = None
+            threading.Timer(6.0, self.overlay.hide).start()
+            return
+        line_id, text, style = cur
+        if (announce or self.voice.block_start()) and not self.overlay._island:
+            self._notify(f"Hold the key and read each line. {self.voice.style_hint(style)}")
+        styles = [k for k, _h in self.voice.styles]
+        per_style = len(self.voice._order[style])
+        in_style = sum(1 for i in self.voice._order[style] if (i, style) in self.voice._done)
+        self.overlay.prompt(
+            text, f"{self.voice.done + 1}/{self.voice.total} · {style}",
+            hint=self.voice.style_hint(style), style=style, style_index=styles.index(style),
+            style_count=len(styles), line_done=in_style, line_total=per_style,
+            done=self.voice.done, total=self.voice.total, key=self.cfg["recording"]["hotkey"],
+            next=self.voice.upcoming() or "", styles=self.voice.progress(),
+            last="" if retry else self.voice.last_text, retry=retry,
+            minutes=round(self.voice.seconds / 60, 1))
 
     def on_lock(self):
         """Double-tap: hands-free mode — recording continues until next tap."""
@@ -944,7 +1094,7 @@ class MyWhisperApp:
         return [w.upper() if i < len(flags) and flags[i] else w
                 for i, w in enumerate(words)]
 
-    def cancel_recording(self):
+    def cancel_recording(self, quiet: bool = False):
         """Quick tap: discard whatever was captured, inject nothing."""
         with self._stop_lock:
             if not self.recorder.recording:
@@ -957,14 +1107,20 @@ class MyWhisperApp:
             # audio to the pre-roll so the locked recording hears everything
             audio = self.recorder.stop(keep_tail=True)
             self.recorder.discard_recovery()  # cancelled — nothing to recover
+            fin = (self._stream_ctx or {}).get("finalizer")
+            if fin is not None:
+                fin.cancel()
+            if (self._stream_ctx or {}).get("ime") and self.ime is not None:
+                self.ime.clear()
             self._stream_ctx = None  # stops the streamer thread
         self.overlay.hide()
+        self._schedule_unload()
         if self.tray:
             self.tray.set_recording(False)
         if audio is not None:
-            if self.cfg["ui"]["sounds"]:
+            if self.cfg["ui"]["sounds"] and not quiet:
                 _chime(440, 90, 0.2)  # A4 — soft, brief: "discarded, no big deal"
-            log.info("✕ cancelled (tap)")
+            log.info("✕ cancelled (%s)", "silence, listening again" if quiet else "tap")
 
     def stop_recording(self):
         """Stop with a ~0.4s tail-grace: the mic keeps capturing briefly so the
@@ -972,9 +1128,10 @@ class MyWhisperApp:
         if self._stopping or not self.recorder.recording:
             return
         self._stopping = True
-        self.overlay.hide()  # pill closes right at your tap — no tick, no counter
-        if self.cfg["ui"]["sounds"]:
-            _chime(587, 150, 0.32)  # D5 — warm: "done, working on it"
+        if self.voice is None:   # a take keeps the prompt on screen
+            self.overlay.hide()   # your words are already on screen: the pill goes at the tap
+        if self.cfg["ui"]["sounds"] and self.voice is None:   # a take: the next line is the confirmation
+            _chime(240, 180, 0.3)   # a lower bloop: "done"
         self._finalize_timer = threading.Timer(0.4, self._finalize_stop,
                                                args=(self._stream_ctx,))
         self._finalize_timer.daemon = True
@@ -1004,11 +1161,11 @@ class MyWhisperApp:
     # -- background threads -----------------------------------------------------
 
     def _committed_so_far(self) -> str:
-        """What the streamer has typed this utterance — the text semantic
-        endpointing judges. Empty when streaming is off, in which case
+        """Latest preview or typed words for semantic endpointing.
+        Empty when streaming is off, in which case
         `should_finish` degrades to the plain silence timer."""
         ctx = self._stream_ctx or {}
-        return " ".join(ctx.get("all_typed") or [])
+        return ctx.get("preview_text") or " ".join(ctx.get("all_typed") or [])
 
     def _monitor(self):
         """Auto-stop on silence, max-duration cap, and mic health (always-on)."""
@@ -1018,12 +1175,22 @@ class MyWhisperApp:
         while not self._shutdown.is_set():
             time.sleep(0.05)
             if not self.recorder.recording:
+                # Voice onboarding listens on its own: the moment a take has
+                # been saved, the mic opens for the next line.
+                if (self.voice is not None and not self._processing_pending
+                        and not self._stopping and not self.paused):
+                    self.start_recording()
+                    continue
                 # Every 3s while idle: revive the mic stream if it died
                 # (headset unplug, sleep/resume, device switch).
                 now = time.monotonic()
                 if now - last_health >= 3.0:
                     last_health = now
                     self.recorder.ensure_alive()
+                    # Hyprland forgets runtime binds on every config reload.
+                    rearm = getattr(self.hotkey, "ensure_bound", None)
+                    if rearm is not None:
+                        rearm()
                     # audio.device_policy: external_first moves to a headset or
                     # dock mic the moment one appears — only while idle, never
                     # mid-utterance.
@@ -1041,6 +1208,24 @@ class MyWhisperApp:
                 log.info("max duration reached — stopping")
                 self._notify("Time limit reached — typing what you said.")
                 self.stop_recording()
+                continue
+            if self.voice is not None:
+                # A take ends itself: you read the line, you pause, it is saved.
+                # (Nothing heard for a long while: keep listening, it costs nothing.)
+                if self.recorder.speech_ms() >= 350 and self.recorder.silence_ms() >= 1000:
+                    self.stop_recording()
+                elif self.recorder.elapsed() > 30:
+                    # half a minute without a word: not a take, listen afresh (silently)
+                    self.cancel_recording(quiet=True)
+                continue
+            hands_free_ms = float(auto.get("hands_free_silence_ms", 0) or 0)
+            hands_free = self.hotkey.locked or rec_cfg["mode"] == "press_to_toggle"
+            if (hands_free_ms and hands_free
+                    and self.recorder.speech_ms() > 0
+                    and self.recorder.silence_ms() >= hands_free_ms):
+                log.info("hands-free: %.0fs of silence — stopping", hands_free_ms / 1000)
+                self.stop_recording()
+                continue
             elif (not self._cap_warned
                     and rec_cfg["max_seconds"] > 90
                     and self.recorder.elapsed()
@@ -1096,19 +1281,29 @@ class MyWhisperApp:
         context_words = int(scfg.get("context_prompt_words", 0) or 0)
         ctx.setdefault("t0", 0)          # samples trimmed (their words are typed)
         ctx.setdefault("committed", [])  # words typed since t0
+        # Trimmed audio is final — decode and polish it NOW, in the background,
+        # so release only pays for the tail. In live mode the polished spans
+        # also replace their raw run on screen as they arrive.
+        utt = ctx.get("utterance", self._ctx)
+        fin = ctx["finalizer"] = IncrementalFinalizer(
+            lambda audio, prompt: self.transcriber.transcribe(audio, prompt=prompt),
+            lambda text: self.cleanup.run(
+                " ".join(apply_edit_commands(text.split())), ctx=utt),
+            sr=sr)
+        screen = ctx["screen"] = LiveScreen()
+        ctx["raw"] = []                  # every committed word, styled, in order
+        ctx["shown_done"] = []           # words of trimmed audio, for the preview
+        retype = bool(scfg.get("retype_on_finish", True))
         while (self.recorder.recording and ctx is self._stream_ctx
                and not self._shutdown.is_set()):
             t_start = time.perf_counter()
-            if live and self.hotkey.held:
-                # Long-press in progress: nothing can be typed while the key is
-                # down, so don't burn GPU on passes whose window only grows —
-                # the release-finalization transcribes it all in one go.
-                time.sleep(0.1)
+            if not self.transcriber.ready:   # on-demand engine still loading
+                time.sleep(0.05)
                 continue
             audio = self.recorder.snapshot()
             if audio is not None and len(audio) - state.t0 >= min_samples:
                 try:
-                    window = audio[state.t0:] if live else audio[-20 * sr:]
+                    window = audio[state.t0:]
                     # Optional rolling context: hand the decoder the words we
                     # already typed, so a partial window is not decoded as if
                     # the speaker had just started talking. Off by default —
@@ -1121,37 +1316,85 @@ class MyWhisperApp:
                                                                prompt=prompt)
                     if not (self.recorder.recording and ctx is self._stream_ctx):
                         break
-                    if not live:
-                        self.overlay.set_preview(
-                            " ".join(t for t, _, _ in segs))
-                    else:
-                        # While the hotkey (Alt!) is physically held, synthetic
-                        # keystrokes would arrive as Alt+char and be eaten by
-                        # the app — record the hypothesis but commit nothing;
-                        # the release-finalization types it all at once.
-                        step = state.step(segs, len(window),
-                                          can_type=not self.hotkey.held)
-                        if step.has_new:
-                            # loudness → CAPS on the way out; `committed` stays
-                            # raw so hypothesis alignment is never disturbed
-                            flags = self._word_caps_flags(segs, window)
-                            styled = self._apply_caps(step.words, flags)[
-                                step.commit_from:step.commit_to]
-                            with self._stop_lock:
-                                if ctx is not self._stream_ctx or not self.recorder.recording:
-                                    break
-                                self.injector.inject_stream(
-                                    " ".join(styled) + " ", ctx.get("utterance", self._ctx))
-                                ctx.setdefault("all_typed", []).extend(styled)
-                                ctx["typed_total"] += len(styled)
-                                self.session_words += len(styled)
-                                ctx["t0"] = state.t0
-                                ctx["committed"] = list(state.committed)
-                        else:
-                            with self._stop_lock:
-                                if ctx is self._stream_ctx:
-                                    ctx["t0"] = state.t0
-                                    ctx["committed"] = list(state.committed)
+                    hyp = " ".join(t for t, _s, _e in segs).split()
+                    if len(hyp) >= 6 and len(set(w.lower() for w in hyp)) <= 2:
+                        continue   # "code code code": a hallucination loop, not speech
+                    # Commit on agreement whatever the mode and whether the key
+                    # is held: committed audio is trimmed and finalized in the
+                    # background. Whether anything is TYPED is decided below.
+                    prior, old_t0 = list(state.committed), state.t0
+                    step = state.step(segs, len(window), can_type=True)
+                    if step.has_new:
+                        # loudness → CAPS on the way out; `committed` stays
+                        # raw so hypothesis alignment is never disturbed
+                        flags = self._word_caps_flags(segs, window)
+                        ctx["raw"].extend(self._apply_caps(step.words, flags)[
+                            step.commit_from:step.commit_to])
+                    if step.trimmed_samples:
+                        gone = (prior + step.words[step.commit_from:step.commit_to]
+                                )[:step.trimmed_words]
+                        ctx["shown_done"].extend(gone)
+                        fin.push(audio[old_t0:old_t0 + step.trimmed_samples], gone)
+                    with self._stop_lock:
+                        if ctx is not self._stream_ctx or not self.recorder.recording:
+                            break
+                        ctx["t0"] = state.t0
+                        ctx["committed"] = list(state.committed)
+                        # Live typing — never while the dictation key (Alt!) is
+                        # physically held, synthetic keystrokes would arrive as
+                        # Alt+char and be eaten; the backlog is typed on release.
+                        # Inline preview wins whenever the focused field speaks
+                        # text-input: no keystrokes, no held-modifier problem,
+                        # the app draws the preview in its own style.
+                        # Inline only in the field the dictation started in: after a
+                        # focus change the preview must not follow you to another chat.
+                        inline = (self.ime is not None and self.ime.active
+                                  and ctx.get("ime_gen", self.ime.generation) == self.ime.generation)
+                        typing = (live and not inline and not self.hotkey.held
+                                  and self.injector.streams_into(utt))
+                        if inline:
+                            ctx["ime"] = True
+                            ctx.setdefault("ime_gen", self.ime.generation)
+                            covered = fin.covered
+                            rest = [] if covered is None else ctx["raw"][covered:]
+                            unstable = step.words[len(state.committed):]
+                            preview = " ".join(
+                                apply_edit_commands((fin.text.split() if fin.text else [])
+                                                    + rest + unstable))
+                            self.ime.preedit(preview + (" " if preview else ""))
+                        if typing:
+                            before = screen.text
+                            raw = ctx["raw"]
+                            backlog = raw[len(screen.marks):]
+                            if backlog:
+                                screen.append(backlog)
+                                self.session_words += len(backlog)
+                            # "remove the last five words" / "scrap that":
+                            # erase on screen right now; the finalizer applies
+                            # the same rule to the text it polishes.
+                            if has_edit_command(raw[ctx.get("edit_from", 0):]):
+                                edited = apply_edit_commands(raw)
+                                a = len(os.path.commonprefix([raw, edited]))
+                                screen.rewrite(a, None, " ".join(edited[a:]))
+                                ctx["edit_from"] = len(raw)
+                            if retype:
+                                for a, b, text in fin.take_ready():
+                                    # Only a span that changes WORDS is rewritten
+                                    # while you talk; case and punctuation wait
+                                    # for the end, so the text stops jumping.
+                                    if same_words(screen.raw(a, b), text):
+                                        ctx.setdefault("deferred", []).append((a, b, text))
+                                    else:
+                                        for d in ctx.pop("deferred", []):
+                                            self._apply_span(screen, *d, utt)
+                                        self._apply_span(screen, a, b, text, utt)
+                            self._sync_screen(screen, before, utt)
+                    # The island shows the words only when they are not already
+                    # landing at the cursor; otherwise just the listening dot.
+                    draft = ("" if typing or inline else " ".join(
+                        apply_edit_commands(ctx["shown_done"] + step.words)))
+                    ctx["preview_text"] = draft or " ".join(ctx["raw"])
+                    self.overlay.set_preview(self.cleanup.preview(draft, utt) if draft else "")
                 except Exception:  # noqa: BLE001
                     # The first failure is loud: a streaming loop that fails
                     # every pass types nothing at all, and at DEBUG that looks
@@ -1165,6 +1408,45 @@ class MyWhisperApp:
                     else:
                         log.debug("streaming pass failed", exc_info=True)
             time.sleep(max(0.05, interval - (time.perf_counter() - t_start)))
+
+    def _commit_inline(self, text: str, gen) -> int:
+        """Turn the inline preview into text, in the field it started in and
+        nowhere else. If that field lost focus the app has already kept the
+        preview as text; delivering again anywhere would duplicate it, so the
+        final wording only goes to the clipboard."""
+        if self.ime is not None and self.ime.active and self.ime.generation == gen:
+            if text:
+                self.ime.commit(text + " ")
+                return len(text) + 1
+            self.ime.clear()
+            return 0
+        if text:
+            from .injector import _clipboard_set
+            _clipboard_set(text)
+            self._notify("You switched fields while dictating: the text stayed where you "
+                         "started, and the final wording is on the clipboard.")
+        return 0
+
+    def _apply_span(self, screen: LiveScreen, a: int, b: int | None, text: str,
+                    utt) -> None:
+        """A polished span replaces its raw run in the screen model: the
+        correction the user spoke ("no, I meant 3+3") lands in the text field
+        at the next `_sync_screen`."""
+        if utt is not None and utt.is_terminal:
+            text = text.replace("\n", " ")   # Enter at a prompt is a submit
+        screen.rewrite(a, b, text)
+
+    def _sync_screen(self, screen: LiveScreen, before: str, utt) -> None:
+        """Send the fewest keystrokes that turn `before` into what the screen
+        model now holds: backspace over the differing tail, type the rest.
+        One pass's appends, edits and polished rewrites become one edit."""
+        after = screen.text
+        common = len(os.path.commonprefix([before, after]))
+        retract, new = len(before) - common, after[common:]
+        if retract:
+            self.injector.retract(retract)
+        if new:
+            self.injector.inject_stream(new, utt)
 
     def _record_history(self, text: str):
         self.history.record(text, app=self._active_app)
@@ -1200,42 +1482,80 @@ class MyWhisperApp:
             try:
                 utterance = (ctx or {}).get("utterance", self._ctx)
                 dur = len(audio) / self.recorder.sr
-                typed = (ctx or {}).get("typed_total", 0)
-                if typed:
-                    # Live mode already typed a prefix. Finalize with the SAME
-                    # decoder over the SAME trimmed window the streamer used —
-                    # the hypothesis aligns word-for-word with what was typed,
-                    # so nothing gets dropped or duplicated. Also much faster
-                    # than re-transcribing the whole utterance.
+                if (ctx or {}).get("take") and self.voice is not None:
+                    self.recorder.discard_recovery()
+                    cur = self.voice.current
+                    # Does this sound like the line? A quick pass with the live
+                    # engine; a conversation or a cough must not become a take.
+                    self.transcriber.ensure()
+                    heard = " ".join(t for t, _s, _e in self.transcriber.transcribe_partial(audio))
+                    if cur is None or not take_matches(cur[1], heard):
+                        log.info("take rejected (%.1fs): not the line", dur)
+                        self._show_prompt(retry=True)
+                        continue
+                    path = self.voice.save_take(audio)
+                    log.info("take %s: %.1fs", "saved" if path else "too short, read it again", dur)
+                    self._show_prompt()
+                    continue
+                self.transcriber.ensure()   # on-demand engine: wait for the load
+                fin = (ctx or {}).get("finalizer")
+                if fin is not None:
                     t0 = time.perf_counter()
-                    window = audio[(ctx or {}).get("t0", 0):]
-                    # Full-quality finalise (hybrid routes this to whisper even
-                    # when moonshine typed the prefix; align_remainder absorbs
-                    # any cross-engine tokenisation drift at the boundary).
-                    segs = self.transcriber.transcribe_final_window(window)
-                    t_stt = time.perf_counter() - t0
-                    words = " ".join(t for t, _, _ in segs).split()
-                    committed = (ctx or {}).get("committed", [])
-                    flags = self._word_caps_flags(segs, window, update=True)
-                    styled = self._apply_caps(words, flags)
-                    # Align by CONTENT, not by count. The final pass uses a
-                    # different beam than the streamer and occasionally
-                    # tokenises the boundary differently; slicing at
-                    # len(committed) then repeats or drops a word.
-                    remainder = align_remainder(committed, styled)
-                    # Only the tail goes through the pipeline: the prefix is
-                    # already on screen, and re-running locale/personal rules
-                    # over it would produce a second, differently-formatted
-                    # copy of text the user is already looking at.
-                    tail = self.cleanup.run(" ".join(remainder), ctx=utterance)
-                    n = self.injector.inject(tail, utterance) if tail else 0
-                    self.session_words += len(remainder)
+                    screen: LiveScreen = ctx["screen"]
+                    # The last span is cleaned without the LLM: it costs ~1 s
+                    # per call and the words are already on screen.
+                    # The chain directly: CleanupPipeline.run() would reset the level
+                    # to the configured "high" and call the LLM after all.
+                    quick = lambda t: self.cleanup.chain.run(   # noqa: E731
+                        " ".join(apply_edit_commands(t.split())),
+                        (utterance or self.cleanup.context()).with_level("medium")) if t.strip() else ""
+                    # Release is instant: keep what is already polished, take the
+                    # rest as it stands, and decode only the window since the last
+                    # trim (~0.3 s on the GPU) so the word being finished is not lost.
+                    # shortcut: the last sentence skips the LLM polish, upgrade by
+                    # polishing it after the commit if users miss it.
+                    polished, covered = fin.stop_now()
+                    window = audio[ctx.get("t0", 0):]
+                    heard = (" ".join(t for t, _s, _e in self.transcriber.transcribe_partial(window))
+                             if len(window) >= int(0.3 * self.recorder.sr) else "")
+                    rest = align_remainder(ctx.get("committed", []), heard.split())
+                    tail = quick(" ".join(ctx.get("raw", [])[covered:] + rest))
+                    text = " ".join(p for p in (polished, tail) if p).strip()
+                    if ctx.get("ime"):
+                        # The preview becomes the text: one commit, no keystrokes.
+                        text = self._auto_transform(text) if text else text
+                        n = self._commit_inline(text, ctx.get("ime_gen"))
+                        self.session_words += len(text.split())
+                    elif screen.marks:
+                        # Live-typed: converge the screen on the polished text.
+                        before = screen.text
+                        if self.cfg["streaming"].get("retype_on_finish", True):
+                            for a, b, span in ctx.pop("deferred", []) + fin.take_ready():
+                                self._apply_span(screen, a, b, span, utterance)
+                        # the unpolished stretch gets the instant cleanup (dictionary,
+                        # punctuation, edit commands) — one short rewrite at the very end
+                        if covered < len(ctx["raw"]) or rest:
+                            screen.rewrite(covered, None, tail)
+                        self._sync_screen(screen, before, utterance)
+                        text = screen.text.strip()
+                        n = len(screen.text)
+                    elif text:
+                        text = self._auto_transform(text)
+                        n = self.injector.inject(text, utterance)
+                        self.session_words += len(text.split())
+                    if not text:
+                        self.overlay.hide()
+                        self.recorder.discard_recovery()
+                        log.info("(no speech detected — %.1fs of audio)", dur)
+                        continue
                     self.overlay.hide()
-                    all_typed = " ".join(
-                        (ctx or {}).get("all_typed", []) + [tail]).strip()
-                    self._record_history(all_typed)
-                    log.info("✓ %.1fs audio → live-typed, +%d final chars "
-                             "in %.2fs", dur, n, t_stt)
+                    self._record_history(text)
+                    log.info("✓ %.1fs audio → %d chars%s, %.2fs after release "
+                             "(%d chunks finalized while speaking: %.2fs decode "
+                             "+ %.2fs polish) | %s", dur, n,
+                             " live-typed" if screen.marks else "",
+                             time.perf_counter() - t0, fin.chunks, fin.decode_s,
+                             fin.polish_s, redact(text))
                     continue
                 t0 = time.perf_counter()
                 segs = self.transcriber.transcribe(audio)
@@ -1252,11 +1572,16 @@ class MyWhisperApp:
                     for (seg_text, _s, _e), loud in zip(segs, seg_flags))
                 t0 = time.perf_counter()
                 text = self.cleanup.run(text, ctx=utterance)
+                if not text.strip():
+                    self.overlay.hide()
+                    self.recorder.discard_recovery()
+                    log.info("(no text after removing speech hesitations)")
+                    continue
                 text = self._auto_transform(text)
                 t_clean = time.perf_counter() - t0
                 n = self.injector.inject(text, utterance)
                 self.session_words += len(text.split())
-                self.overlay.hide()
+                self.overlay.flash_done(text)
                 self._record_history(text)
                 # NEVER log the transcript itself — see redact.py. `redact()`
                 # yields a word/char shape unless the user explicitly turned on
@@ -1272,6 +1597,22 @@ class MyWhisperApp:
             finally:
                 self._processing_pending = False
                 self._queue.task_done()
+                self._schedule_unload()
+
+    def _schedule_unload(self):
+        """model.unload_after_min: free the engine after a quiet spell."""
+        if not self._unload_after_s:
+            return
+        if self._unload_timer is not None:
+            self._unload_timer.cancel()
+        self._unload_timer = threading.Timer(self._unload_after_s, self._unload_if_idle)
+        self._unload_timer.daemon = True
+        self._unload_timer.start()
+
+    def _unload_if_idle(self):
+        if self.recorder.recording or self._processing_pending:
+            return
+        self.transcriber.unload()
 
     # -- lifecycle -------------------------------------------------------------------
 
@@ -1292,6 +1633,7 @@ class MyWhisperApp:
         def work():
             try:
                 audio = np.frombuffer(raw, dtype=np.float32)
+                self.transcriber.ensure()
                 segs = self.transcriber.transcribe(audio)
                 text = " ".join(t for t, _, _ in segs).strip()
                 if not text:
@@ -1426,6 +1768,16 @@ def run_mic_test(cfg: dict, seconds: int):
     if audio is None:
         print("No audio captured — check your microphone (--list-devices).")
         return
+    # Keep the clip: it is the only way to compare engines on a real voice.
+    import wave
+    from .paths import logs_dir
+    wav_path = logs_dir() / "last-test.wav"
+    with wave.open(str(wav_path), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(recorder.sr)
+        w.writeframes((np.clip(audio, -1, 1) * 32767).astype(np.int16).tobytes())
+    print(f"(saved to {wav_path})")
     t0 = time.perf_counter()
     segs = transcriber.transcribe(audio)
     text = " ".join(t for t, _, _ in segs)

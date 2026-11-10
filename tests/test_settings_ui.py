@@ -149,6 +149,15 @@ class TestControlsDriveTheApp(unittest.TestCase):
         self.assertTrue(self._pick(frame, "High — rewrite with your local AI"))
         app.set_cleanup_level.assert_called_once_with("high")
 
+    def test_spoken_corrections_switch_calls_setter(self):
+        from mywhisper.settings_ui import _writing
+        app, frame = self._build(_writing)
+        switch = next(w for w in widgets(frame)
+                      if isinstance(w, tk.Checkbutton)
+                      and w.cget("text") == "Keep the corrected wording")
+        switch.invoke()
+        app.set_self_corrections.assert_called_once_with(False)
+
     def test_hotkey_picker_rebinds(self):
         from mywhisper.settings_ui import _shortcuts
         app, frame = self._build(_shortcuts)

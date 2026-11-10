@@ -11,9 +11,11 @@ never be the reason a dictation doesn't happen.
 """
 
 import ctypes
+import json
 import logging
 import os
 import re
+import subprocess
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -40,7 +42,7 @@ class Foreground:
 def foreground_full() -> Foreground:
     """Everything we can learn about the focused window in one pass."""
     if os.name != "nt":
-        return Foreground()
+        return _hyprland_active()
     try:
         user32 = ctypes.windll.user32
         k32 = ctypes.windll.kernel32
@@ -67,6 +69,20 @@ def foreground_full() -> Foreground:
                 k32.CloseHandle(h)
         return Foreground(exe=exe, title=title, pid=int(pid.value), hwnd=int(hwnd))
     except Exception:  # noqa: BLE001
+        return Foreground()
+
+
+def _hyprland_active() -> Foreground:
+    """`hyprctl -j activewindow`: the Wayland app-id plays the exe's role
+    ("kitty", "code", "firefox"), so per-app rules read the same."""
+    try:
+        out = subprocess.run(["hyprctl", "-j", "activewindow"],
+                             capture_output=True, text=True, timeout=0.5).stdout
+        w = json.loads(out or "{}") or {}
+        return Foreground(exe=str(w.get("class") or "").lower(),
+                          title=str(w.get("title") or ""),
+                          pid=int(w.get("pid") or 0))
+    except Exception:  # noqa: BLE001 — no compositor, no context; dictation goes on
         return Foreground()
 
 

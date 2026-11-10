@@ -28,6 +28,8 @@ DEFAULTS: dict = {
                                         #   the FINAL pass (faster-whisper >=1.1).
                                         #   Falls back silently if unsupported.
         "batch_size": 8,
+        "unload_after_min": 0,          # 0 = load at start and keep; N = load on the
+                                        #   first hotkey, free the RAM after N idle minutes
     },
     "asr": {
         "backend": "faster-whisper",    # faster-whisper | moonshine | hybrid —
@@ -39,6 +41,8 @@ DEFAULTS: dict = {
     },
     "recording": {
         "mode": "hold_to_record",       # hold_to_record | press_to_toggle
+        "toggle_taps": 1,               # (toggle mode) taps that start a dictation: 2 = double
+                                        #   tap, so a stray tap never opens the mic
         "hotkey": "right alt",          # single keys get long-press behavior; combos toggle
         "long_press_ms": 250,           # (single-key hold mode) shorter = tap (cancel)
         "double_tap_lock": True,        # (single-key hold mode) double-tap = hands-free lock
@@ -54,6 +58,8 @@ DEFAULTS: dict = {
         "max_seconds": 600,             # hard cap per utterance
         "auto_stop": {                  # (toggle mode) stop when you go silent
             "enabled": False,           # off: you stop it yourself (hotkey or click the pill)
+            "hands_free_silence_ms": 0, # hands-free (double-tap lock or toggle mode): stop
+                                        #   after this much silence, whatever `enabled` says
             "silence_ms": 900,
             "min_speech_ms": 300,
             # Semantic endpointing: at the silence threshold, look at what was
@@ -72,6 +78,8 @@ DEFAULTS: dict = {
         "max_log_mb": 10,
     },
     "injection": {
+        "inline_preview": True,         # Wayland: preview at the caret via the input-method
+                                        #   protocol where the app supports it (text-input-v3)
         "method": "type",               # type (Win32 SendInput) | paste (clipboard + Ctrl+V)
         "append_space": True,           # trailing space so consecutive dictations join nicely
         "restore_clipboard": True,      # (paste) restore previous clipboard content after
@@ -92,9 +100,11 @@ DEFAULTS: dict = {
     },
     "cleanup": {
         "level": "light",               # none | light | medium | high (one dial:
-                                        # light=fillers, medium=+backtrack,
+                                        # light=fillers/corrections, medium=+backtrack,
                                         # high=+LLM rewrite when Ollama is up)
         "strip_fillers": True,          # regex removal of um/uh/erm...
+        "self_corrections": True,       # explicit repairs; preview then insert at stop
+        "developer_syntax": False,      # opt-in "snake case ... end name" commands
         "expressive": {                 # voice-aware formatting
             "enabled": True,
             "caps_ratio": 2.5,          # segment ≥2.5× the utterance median → CAPS
@@ -122,6 +132,7 @@ DEFAULTS: dict = {
         "words": [],                    # names/jargon boosted during recognition
         "replacements": {},             # {"heard": "typed"} exact fixes, post-STT
         "snippets": {},                 # {"spoken trigger": "expanded text"}
+        "libraries": [],                # explicit local .svara-library.json files, read-only
         "spoken_punctuation": False,    # "period"/"comma"/"new line" → . , \n
         # Watches corrections you make to text Svara typed and SUGGESTS
         # dictionary entries. Never adds one on its own; suggestions wait in a
@@ -141,6 +152,8 @@ DEFAULTS: dict = {
                       "telegram.exe", "ms-teams.exe", "signal.exe"],
         "styles": {},                   # {"slack.exe": "casual, friendly"} —
                                         # tone hint for the LLM cleanup
+        "writing_style": "auto",        # auto | formal | casual | very_casual | excited
+        "formatting_styles": {},        # per-exe / chat / default punctuation presets
         # Reads the text just before your caret so mid-sentence dictation is
         # not capitalised. Off by default: this reads text Svara did not
         # produce. Never logged, never stored, dropped after each utterance.
@@ -193,6 +206,8 @@ DEFAULTS: dict = {
         "max_window_s": 30,             # cap the re-decoded window; past this, trimming
                                         #   gets more aggressive so pass time stays flat
                                         #   through speech with no pauses (0 = no cap)
+        "retype_on_finish": True,       # live mode: if the final pass disagrees with the
+                                        #   words already typed, erase and retype them
         "context_prompt_words": 0,      # feed the last N typed words back to the
                                         #   decoder as context (0 = off; measure with
                                         #   --bench before turning it on — it can also
@@ -215,7 +230,7 @@ DEFAULTS: dict = {
         "sounds": True,                 # beep on record start/stop
         "tray": True,                   # system tray icon
         "overlay": True,                # on-screen recording pill
-        "theme": "minimal-dark",        # see themes.py / tray ▸ Theme
+        "theme": "svara",               # see themes.py / tray ▸ Theme
         "theme_overrides": {},          # per-key tweaks on top of the theme
         "position": "bottom",           # bottom | top
         "offset_px": 80,                # distance from the screen edge
@@ -247,10 +262,11 @@ def merged_dictionary(cfg: dict) -> dict:
     machine-managed personal file): words union, replacements/snippets merge
     (dictionary.yaml wins on conflicts)."""
     from .paths import dictionary_path
+    from .libraries import merge_configured
     base = copy.deepcopy(cfg.get("dictionary") or DEFAULTS["dictionary"])
     p = dictionary_path()
     if not p.is_file():
-        return base
+        return merge_configured(base)
     try:
         with open(p, "r", encoding="utf-8") as f:
             over = yaml.safe_load(f) or {}
@@ -267,7 +283,7 @@ def merged_dictionary(cfg: dict) -> dict:
     except Exception as e:  # noqa: BLE001 — a broken dictionary must not kill startup
         log.error("Failed to parse %s (%s) — using config.yaml's dictionary only.",
                   p, e)
-    return base
+    return merge_configured(base)
 
 
 def load(path: str | Path | None) -> dict:
@@ -303,6 +319,7 @@ _CHOICES = {
     "audio.device_policy": {"preferred", "system_default", "external_first"},
     "injection.terminal_newline": {"space", "shift_enter", "literal"},
     "cleanup.level": {"none", "light", "medium", "high"},
+    "context.writing_style": {"auto", "formal", "casual", "very_casual", "excited"},
 }
 _BOUNDS = {
     "audio.sample_rate": (16000, 16000),  # all recognition engines expect 16 kHz
@@ -312,7 +329,9 @@ _BOUNDS = {
     "streaming.interval_ms": (20, 10000), "streaming.min_audio_s": (0.1, 30),
     "streaming.max_window_s": (0, 600), "streaming.hold_back": (0, 100),
     "model.beam_size": (1, 20), "model.partial_beam_size": (1, 20),
-    "model.batch_size": (1, 64), "ui.scale": (0.5, 3),
+    "model.batch_size": (1, 64), "model.unload_after_min": (0, 1440),
+    "recording.toggle_taps": (1, 3),
+    "ui.scale": (0.5, 3),
     "ui.pill_width": (140, 600), "ui.wave_weight": (0.25, 4),
 }
 

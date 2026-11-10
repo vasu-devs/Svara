@@ -126,8 +126,7 @@ class TerminalStrategy(BaseStrategy):
         wait_modifiers_released()
 
         if self.newline == "shift_enter" and "\n" in text:
-            from ..injector import (KEYEVENTF_KEYUP, VK_RETURN, VK_SHIFT,
-                                    _key_event, _send)
+            from ..injector import press_shift_enter
             lines = text.split("\n")
             for i, line in enumerate(lines):
                 if line:
@@ -137,12 +136,7 @@ class TerminalStrategy(BaseStrategy):
                     else:
                         type_text(line)
                 if i < len(lines) - 1:
-                    _send([
-                        _key_event(vk=VK_SHIFT),
-                        _key_event(vk=VK_RETURN),
-                        _key_event(vk=VK_RETURN, flags=KEYEVENTF_KEYUP),
-                        _key_event(vk=VK_SHIFT, flags=KEYEVENTF_KEYUP),
-                    ])
+                    press_shift_enter()
                     time.sleep(0.03)
             return len(text)
 

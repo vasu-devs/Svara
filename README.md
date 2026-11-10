@@ -162,7 +162,8 @@ subscription, no telemetry, and it works offline.
 
 ## Requirements
 
-- **Windows 10 or 11**
+- **Windows 10 or 11** — or Linux with Hyprland: see [`LINUX.md`](LINUX.md)
+  (CPU-only source build, `./run.sh`).
 - **An NVIDIA GPU** for the fast path (a CPU fallback works automatically, just
   slower). ~2 GB of free VRAM for `large-v3-turbo`; less for smaller models.
 - **Python 3.11** if running from source. Not needed for the packaged release.
@@ -272,6 +273,7 @@ Svara does not just transcribe — it formats what you say based on how you say 
 ```yaml
 cleanup:
   strip_fillers: true         # remove um / uh / erm ...
+  self_corrections: true      # explicit repairs; preview first, insert at stop
   expressive:
     enabled: true
     caps_ratio: 2.5           # a word 2.5x louder than the median → TYPES IN CAPS
@@ -283,12 +285,26 @@ cleanup:
 - **Shout to capitalise.** Loudness is compared against the median volume of the
   whole utterance, so background noise or a naturally loud voice will not trigger
   it — only real emphasis does.
-- **Filler removal.** `um`, `uh`, false starts, and stutters are cleaned on the fly.
+- **Filler removal.** Removes elongated `ummm`, `uhhh`, `aahhh`, hesitant subject
+  repeats and repeated word fragments. Filler-only speech inserts nothing.
+- **Spoken corrections, on by default.** “Let's do the meeting at 5, no no no,
+  at 4” becomes “Let's do the meeting at 4”. Light cleanup handles explicit local
+  repairs of times, days, quantities, colors, recipients and repeated phrases.
+  It preserves surrounding wording, quoted text, code and meaningful repetition.
+  Settings → Writing → Spoken corrections controls this feature.
 - **LLM polish (optional).** Point Svara at a local LLM for punctuation,
-  paragraphing, and self-correction — the "Wispr magic", fully offline. It
+  paragraphing and broader semantic self-correction. It
   auto-detects [Ollama](https://ollama.com) or any OpenAI-compatible server
-  ([LM Studio](https://lmstudio.ai), llama.cpp, Jan) and never adds content,
-  answers questions, or translates.
+  ([LM Studio](https://lmstudio.ai), llama.cpp, Jan). After downloading the model,
+  choose **High** cleanup. An empty server or missing configured model does not
+  count as ready. Model failures retain the rules-cleaned transcript. The prompt
+  asks the model to preserve intent and negation, resolve only clear corrections,
+  and output no commentary; model output can still be imperfect.
+
+The offline repair rules are conservative English patterns, not a general semantic
+model. Ambiguous phrases are preserved for the optional AI pass. Soft words such
+as “like” and “you know” are not blindly deleted. All of these edits apply only to
+the current recording; Svara does not backspace through your existing document.
 
 ### Personal dictionary, fixes, and snippets
 
@@ -312,6 +328,53 @@ dictionary:
   your vocabulary better, including in live streaming mode.
 - **`replacements`** and **`snippets`** run last in the cleanup pipeline, so your
   exact spellings always win — even over the optional LLM polish.
+- Expansions are literal: another dictionary rule or spoken punctuation command
+  cannot rewrite text inside a saved snippet. Indentation, blank lines and
+  backslashes survive. Speaking just a snippet trigger with a final period
+  inserts the saved block without that extra period.
+
+### Writing styles and developer voice syntax
+
+Settings → Writing offers **Auto**, **Formal**, **Casual**, **Very casual** and
+**Excited** presets. They adjust English casing and final punctuation without
+changing the words or requiring an AI model. Terminal input, code, quoted text
+and links keep their literal formatting. Configure app-specific overrides with:
+
+```yaml
+context:
+  writing_style: auto
+  formatting_styles:
+    chat: casual
+    outlook.exe: formal
+```
+
+Enable **Developer voice syntax** in the same settings section:
+
+- “camel case user account end name” → `userAccount`
+- “snake case user account end name” → `user_account`
+- “constant case max retries end name” → `MAX_RETRIES`
+- “file name src slash main dot py end file” → `src/main.py`
+
+Explicit closing phrases prevent ordinary discussion about coding from becoming
+commands. Filenames are formatted text, not automatic IDE attachments. Numbered
+lists now also recognize “1. apples 2. bananas 3. oranges” at Medium/High cleanup.
+See [the Wispr Flow comparison](FLOW_FEATURES.md) for implemented capabilities,
+existing features and the remaining gaps.
+
+### Portable vocabulary and history insights
+
+Use **Dictionary → Export** to save a portable JSON library containing your
+personal vocabulary, replacements and exact snippets. **Import** accepts these
+libraries and CSV; existing entries win and conflicts are reported. To reuse a
+library maintained by someone else, list its path under `dictionary.libraries`.
+Shared files are read-only; reload the dictionary after they change. Svara does
+not upload them or manage cloud synchronization.
+
+**History** now includes 30-day dictation and word totals, top apps and a daily
+activity chart. Hover or use arrow keys on the chart to inspect a day; F5 refreshes
+the view. **Export** saves retained history as lossless JSON. These counts use the
+existing local history and disappear when it is cleared; no separate telemetry
+store is created. Retention also applies to reads/exports during long sessions.
 
 ### Where the text lands
 
@@ -417,6 +480,15 @@ Live mode uses a LocalAgreement strategy: a word is committed only when two
 consecutive passes agree on it, which keeps the streamed text stable instead of
 flickering.
 
+With spoken corrections, writing presets, snippets/replacements, spoken
+punctuation, developer syntax, Medium/High cleanup, or forced LLM cleanup,
+Svara uses preview instead of live insertion: words remain tentative in the pill,
+and the full cleaned utterance is inserted once you stop. This prevents an early
+“5” from reaching your document before you correct it to “4”. The preview uses
+only cheap local rules; the AI runs once on the final transcript. For immediate
+live typing, choose plain Light cleanup and disable those richer features. Your chosen
+streaming mode is retained; changes to delivery mode take effect next recording.
+
 ### Themes and visualizers
 
 Ten live sound visualizers (strings, bars, spectrum, scope, pulse, particles,
@@ -425,7 +497,7 @@ theme, waveform, background, and reduced-motion controls:
 
 ```yaml
 ui:
-  theme: minimal-dark   # minimal-dark | minimal-light | matrix | cyberpunk
+  theme: svara          # svara | minimal-dark | minimal-light | matrix | cyberpunk
                         # | sakura | evangelion | saiyan | vaporwave
   wave: orbit           # orbit and ribbon are new options
   reduced_motion: false # freeze decorative movement; also available in Settings

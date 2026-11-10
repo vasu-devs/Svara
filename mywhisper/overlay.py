@@ -21,14 +21,19 @@ to the nearest clear spot, easing back home when the coast is clear.
 
 import colorsys
 import ctypes
+import json
 import logging
 import math
+import os
 import queue
+import shutil
+import subprocess
 import threading
+import time
 
 import numpy as np
 
-from .themes import get_theme
+from .themes import DEFAULT as DEFAULT_THEME, get_theme
 
 log = logging.getLogger(__name__)
 
@@ -82,8 +87,8 @@ def _rgba(h: str, a: int) -> tuple[int, int, int, int]:
 
 # ── Win32 plumbing ───────────────────────────────────────────────────────────
 
-_user32 = ctypes.windll.user32
-_gdi32 = ctypes.windll.gdi32
+_user32 = ctypes.windll.user32 if os.name == "nt" else None
+_gdi32 = ctypes.windll.gdi32 if os.name == "nt" else None
 
 
 class _BLENDFUNCTION(ctypes.Structure):
@@ -231,12 +236,128 @@ def _ulw_paint(hwnd: int, img, x: int, y: int, alpha: int) -> bool:
 
 # ── the overlay ──────────────────────────────────────────────────────────────
 
+class _IslandFeed:
+    """Drives the Quickshell dynamic island (~/.config/quickshell/island): one
+    JSON file in XDG_RUNTIME_DIR that shell.qml watches, the way it already
+    watches its theme.json. Written in place so the inotify watch survives;
+    the reader ignores a half-written file and keeps the last state."""
+
+    def __init__(self, path: str, get_level, get_bands=None):
+        self.path = path
+        self._get_level = get_level
+        self._get_bands = get_bands or (lambda: [])
+        self._lock = threading.Lock()
+        self._state = {"state": "hidden", "text": "", "level": 0.0, "bands": []}
+        self._pulse = threading.Event()
+        self._hide_timer: threading.Timer | None = None
+        self._write()
+
+    def set(self, state: str | None = None, text: str | None = None,
+            level: float | None = None, bands: list | None = None):
+        with self._lock:
+            if state is not None:
+                self._state["state"] = state
+            if text is not None:
+                self._state["text"] = text
+            if level is not None:
+                self._state["level"] = round(max(0.0, min(1.0, float(level))), 3)
+            if bands is not None:
+                self._state["bands"] = list(bands)
+            self._write()
+
+    def _write(self):
+        try:
+            fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            try:
+                os.write(fd, json.dumps(self._state).encode("utf-8"))
+            finally:
+                os.close(fd)
+        except OSError:
+            log.debug("island feed unwritable", exc_info=True)
+
+    def show(self, state: str):
+        self._cancel_hide()
+        if self._pulse.is_set():      # listening → locked mid-dictation: keep the words
+            self.set(state=state)
+            return
+        self.set(state=state, text="", level=0.0)
+        if not self._pulse.is_set():
+            self._pulse.set()
+            threading.Thread(target=self._levels, daemon=True, name="island-level").start()
+
+    def _levels(self):
+        while self._pulse.is_set():
+            self.set(level=self._get_level(), bands=self._get_bands())
+            time.sleep(1 / 15)
+
+    def prompt(self, text: str, tag: str, **extra):
+        """Voice onboarding: the line to read, with progress; bars keep moving.
+        `extra` (style hint, counts) feeds the full-screen onboarding page."""
+        self._cancel_hide()
+        self.set(state=extra.pop("state", "prompt"), text=text, level=0.0)
+        with self._lock:
+            self._state["tag"] = tag
+            self._state.update(extra)
+            self._write()
+        if not self._pulse.is_set():
+            self._pulse.set()
+            threading.Thread(target=self._levels, daemon=True, name="island-level").start()
+
+    def working(self):
+        self._pulse.clear()
+        self.set(state="working", level=0.0, bands=[])
+
+    def done(self, text: str, linger_s: float = 1.2):
+        """Final text with a check, then the pill lets go unless a new
+        dictation has started meanwhile."""
+        self._pulse.clear()
+        self.set(state="done", text=text, level=0.0)
+        self._cancel_hide()
+        self._hide_timer = threading.Timer(linger_s, self._hide_if_done)
+        self._hide_timer.daemon = True
+        self._hide_timer.start()
+
+    def _hide_if_done(self):
+        with self._lock:
+            if self._state["state"] != "done":
+                return
+        self.hide()
+
+    def hide(self):
+        self._pulse.clear()
+        self._cancel_hide()
+        self.set(state="hidden", text="", level=0.0)
+
+    def _cancel_hide(self):
+        if self._hide_timer is not None:
+            self._hide_timer.cancel()
+            self._hide_timer = None
+
+
+def _island_running() -> bool:
+    try:
+        return subprocess.run(["systemctl", "--user", "is-active", "island.service"],
+                              capture_output=True, timeout=3).stdout.strip() == b"active"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
 class Overlay:
     def __init__(self, ui_cfg: dict, get_level=None, on_click=None,
                  on_cycle=None, on_cycle_wave=None, on_cycle_bg=None,
-                 get_stats=None, on_move=None):
-        self.enabled = bool(ui_cfg.get("overlay", True))
+                 get_stats=None, on_move=None, get_bands=None):
+        # The layered-window pill is Win32; on Hyprland the compositor's own
+        # notification marks the open mic instead (see show/hide).
+        self.enabled = bool(ui_cfg.get("overlay", True)) and os.name == "nt"
+        self._hypr = os.name != "nt" and bool(ui_cfg.get("overlay", True)) \
+            and shutil.which("hyprctl") is not None
         self._get_level = get_level or (lambda: 0.0)
+        # Vasu's Quickshell island shows the live words; without it the
+        # compositor notification below marks the open mic.
+        runtime = os.environ.get("XDG_RUNTIME_DIR")
+        self._island = (_IslandFeed(os.path.join(runtime, "svara-island.json"),
+                                    self._get_level, get_bands)
+                        if self._hypr and runtime and _island_running() else None)
         self._on_click = on_click            # ● dot: finish recording
         self._on_cycle = on_cycle            # ◐ theme button
         self._on_cycle_wave = on_cycle_wave  # ✦ style button
@@ -251,7 +372,7 @@ class Overlay:
         self._egg_n = 0
         pos = ui_cfg.get("pos")
         self._custom_home = tuple(pos) if isinstance(pos, (list, tuple)) else None
-        self._theme = get_theme(ui_cfg.get("theme", "minimal-dark"),
+        self._theme = get_theme(ui_cfg.get("theme", DEFAULT_THEME),
                                 ui_cfg.get("theme_overrides") or {})
         self._overrides = ui_cfg.get("theme_overrides") or {}
         self._wave = ui_cfg.get("wave", "strings")
@@ -273,18 +394,48 @@ class Overlay:
     def show(self, state: str):
         if self.enabled:
             self._q.put(("show", state))
+        elif self._island:
+            self._island.show(state)
+        elif self._hypr:
+            text = ("Svara — hands-free, tap to finish" if state == "locked"
+                    else "Svara — listening")
+            subprocess.Popen(["hyprctl", "notify", "-1", "120000",
+                              "rgb(f2a39b)", f"fontsize:13  {text}"])
 
     def set_preview(self, text: str):
         if self.enabled:
             self._q.put(("preview", text))
+        elif self._island:
+            self._island.set(text=text)
+
+    def working(self):
+        """Key released, text not yet typed: the Win32 pill closes right at
+        the tap; the island keeps a quiet dot until the text lands."""
+        if self._island:
+            self._island.working()
+        else:
+            self.hide()
+
+    def prompt(self, text: str, tag: str, **extra):
+        """Voice onboarding line to read (island + overlay page; elsewhere a toast)."""
+        if self._island:
+            self._island.prompt(text, tag, **extra)
 
     def flash_done(self, text: str):
         if self.enabled:
             self._q.put(("hide", None))
+        elif self._island:
+            self._island.done(text)
+        else:
+            self.hide()
 
     def hide(self):
         if self.enabled:
             self._q.put(("hide", None))
+        elif self._island:
+            self._island.hide()
+        elif self._hypr:
+            subprocess.Popen(["hyprctl", "dismissnotify"])
 
     def set_theme(self, name: str):
         if self.enabled:

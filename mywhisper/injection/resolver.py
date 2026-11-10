@@ -16,6 +16,10 @@ DEFAULT_TERMINALS = [
     "kitty.exe", "hyper.exe", "tabby.exe", "putty.exe", "cygwin.exe",
     "ubuntu.exe", "wsl.exe", "wslhost.exe", "fluent-terminal.exe",
     "warp.exe", "ghostty.exe",
+    # Wayland app-ids (Linux)
+    "kitty", "alacritty", "foot", "footclient", "org.wezfurlong.wezterm",
+    "com.mitchellh.ghostty", "org.kde.konsole", "org.gnome.terminal",
+    "org.gnome.ptyxis", "xterm", "dev.warp.warp",
 ]
 
 # Editors whose *integrated terminal* is the common dictation target. They are
@@ -23,6 +27,7 @@ DEFAULT_TERMINALS = [
 # also accept) rather than full terminal line-splitting.
 DEFAULT_SHIFT_INSERT = [
     "cursor.exe", "windsurf.exe", "code.exe", "code - insiders.exe",
+    "code", "code-oss", "code-url-handler", "cursor", "windsurf",
 ]
 
 _STRATEGIES = {

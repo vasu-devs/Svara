@@ -49,7 +49,11 @@ if not CPU_ONLY:
 # + the Moonshine tokenizer (MIT, Useful Sensors — not hosted on their HF repo).
 datas += [("config.yaml", "."), ("assets/icon.ico", "assets"),
           ("assets/icon.png", "assets"),
-          ("assets/moonshine-tokenizer.json", "assets")]
+          ("assets/moonshine-tokenizer.json", "assets"),
+          # The desktop windows' serif, loaded privately into GDI at runtime
+          # (ui_fonts.py). OFL licence ships beside it, as the licence asks.
+          ("assets/Newsreader.ttf", "assets"),
+          ("assets/Newsreader-OFL.txt", "assets")]
 
 hiddenimports += ["comtypes.gen", "mywhisper", "mywhisper.paths",
                   "mywhisper.setup_ui", "tkinter", "tkinter.ttk", "customtkinter",
@@ -103,7 +107,7 @@ if ONEFILE:
         datas=a.datas,
         text_pos=(38, 252),
         text_size=10,
-        text_color="#9a9aa4",
+        text_color="#8a847b",
         text_default="starting…",
         always_on_top=True,
     )

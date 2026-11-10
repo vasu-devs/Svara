@@ -46,3 +46,8 @@ comtypes>=1.2; sys_platform == "win32"
 # the very first screen a user sees is how it breaks silently on an upgrade.
 tqdm>=4.66
 huggingface_hub>=0.20
+
+# Linux/Wayland: the uinput virtual keyboard that types the dictation
+# (mywhisper/injector_wayland.py). Hyprland binds the hotkey; wl-clipboard
+# (system package) handles paste. See LINUX.md.
+evdev>=1.7; sys_platform == "linux"

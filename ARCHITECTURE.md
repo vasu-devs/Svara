@@ -67,8 +67,8 @@ Declared in one place: `pipeline/__init__.py::build_chain()`. If you are adding
 a text transformation, it goes in that list and nowhere else.
 
 ```
-fillers → backtrack → numbered_lists → llm → locale → romanize
-        → app_rules → continuation → personalizer
+fillers → self_corrections → backtrack → numbered_lists → llm → locale → romanize
+        → app_rules → writing_style → continuation → developer_syntax → personalizer
 ```
 
 Three ordering constraints, each with a test in `tests/test_pipeline.py`:
@@ -101,8 +101,32 @@ guarantees for free, and both are load-bearing:
   `SVARA-PIPE-001` and the previous text carries forward. A regex bug must not
   eat the paragraph someone just spoke.
 - **A stage cannot silently empty an utterance.** Returning `""` for non-empty
-  input is treated as a bug and refused. Losing words is the worst failure this
-  app has, so it fails closed.
+  input is refused unless the stage explicitly declares `allow_empty`. Only the
+  filler stage permits this: an utterance containing only hesitation sounds is
+  intentionally empty, and the worker skips injection, transforms and history.
+
+`pipeline/corrections.py` resolves explicit English slot replacements and phrase
+restarts after fillers, before whole-clause backtracking and the optional LLM.
+Literal quotes, code and addresses are excluded from rule-based editing. The
+stage is enabled at Light or higher by `cleanup.self_corrections` (default true).
+Ambiguous repairs are left intact. The LLM's dictation prompt includes examples
+and explicit preservation of negation; transform prompts are separate.
+
+Whole-utterance cleanup cannot repair a prefix already inserted in another app.
+`CleanupPipeline.requires_final_cleanup` therefore makes `start_recording` resolve
+live mode to preview for corrections, writing presets, dictionary expansions,
+spoken punctuation, developer syntax, Medium/High cleanup or forced LLM use.
+The configured streaming preference is retained. Preview captions run only the
+cheap filler/correction rules, never the LLM or dictionary snippets. The worker
+cleans the entire final transcript once and inserts/records only that result.
+Preview hypotheses also feed semantic endpointing so unfinished thoughts are not
+treated as empty text merely because nothing has been inserted yet.
+
+Writing presets run after the legacy chat rule, so an explicit Formal setting
+can retain its final period in chat. Developer syntax runs after typography and
+style to preserve generated identifier casing. The personalizer matches the
+original text in one pass, longest trigger first, and treats every expansion as
+literal data; expansions cannot cascade into other rules or spoken punctuation.
 
 ---
 

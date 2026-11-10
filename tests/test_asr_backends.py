@@ -119,6 +119,15 @@ class TestHybridRouting(unittest.TestCase):
         # the live finaliser must be whisper-quality, not moonshine
         self.assertEqual(h.transcribe_final_window(audio)[0].text, "fw-partial")
 
+    def test_partials_move_to_whisper_once_it_runs_on_the_gpu(self):
+        h, _ = self._hybrid()
+        audio = np.zeros(1600, dtype=np.float32)
+        h._fw_thread.join()
+        h._fw_backend.device_used = "cuda"
+        self.assertEqual(h.transcribe_partial(audio)[0].text, "fw-partial")
+        h._fw_backend.device_used = "cpu"
+        self.assertEqual(h.transcribe_partial(audio)[0].text, "moon-partial")
+
     def test_language_switch_reroutes_partials_live(self):
         h, cfg = self._hybrid()
         audio = np.zeros(1600, dtype=np.float32)

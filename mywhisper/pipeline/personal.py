@@ -47,6 +47,7 @@ class Personalizer:
         self.words: list[str] = [str(w) for w in (cfg.get("words") or []) if w]
         self.spoken_punct = bool(cfg.get("spoken_punctuation", False))
         self._rules: list[tuple[re.Pattern, str]] = []
+        self._snippet_rules = set()
         # snippets first: a longer spoken trigger must win over a replacement
         # that happens to match one of its words
         merged = list((cfg.get("snippets") or {}).items())
@@ -55,12 +56,23 @@ class Personalizer:
             if not heard or typed is None:
                 continue
             try:
+                if heard in (cfg.get("snippets") or {}):
+                    self._snippet_rules.add(len(self._rules))
                 self._rules.append((
                     re.compile(rf"\b{re.escape(str(heard))}\b", re.IGNORECASE),
                     str(typed)))
             except re.error:
                 log.warning("%s bad dictionary rule — skipped (%d chars)",
                             E_DICT_IO, len(str(heard)))
+        # Match the original input once. Expanded snippets are literal payloads,
+        # never input to later replacements or spoken punctuation rules.
+        self._matcher = (re.compile("|".join(f"(?P<r{i}>{pattern.pattern})"
+                                           for i, (pattern, _) in enumerate(self._rules)),
+                                    re.IGNORECASE) if self._rules else None)
+
+    @property
+    def requires_final_cleanup(self) -> bool:
+        return bool(self._rules or self.spoken_punct)
 
     @property
     def hotwords(self) -> str | None:
@@ -68,18 +80,35 @@ class Personalizer:
         return ", ".join(self.words) if self.words else None
 
     def apply(self, text: str) -> str:
-        for pattern, typed in self._rules:
-            # re.sub treats backslashes in the replacement as escapes —
-            # user text is literal, so escape them (and stray group refs)
-            text = pattern.sub(typed.replace("\\", "\\\\"), text)
-        if self.spoken_punct:
+        def punctuation(raw: str) -> str:
+            if not self.spoken_punct:
+                return raw
             for phrase, repl in _SPOKEN_PUNCT:
                 # swallow surrounding spaces and any punctuation Whisper stuck
                 # around the phrase itself: "hello, comma, world" → "hello, world"
-                text = re.sub(rf"[,.]?\s*\b{re.escape(phrase)}\b[,.]?\s*", repl,
-                              text, flags=re.IGNORECASE)
-            text = _SPACE_RE.sub(" ", text).strip()
-        return text
+                raw = re.sub(rf"[,.]?\s*\b{re.escape(phrase)}\b[,.]?\s*", repl,
+                             raw, flags=re.IGNORECASE)
+            return _SPACE_RE.sub(" ", raw)
+
+        if self._matcher is None:
+            out = punctuation(text)
+            return out.strip() if self.spoken_punct else out
+        whole = self._matcher.fullmatch(text.strip().rstrip(".,!?"))
+        if whole and int(whole.lastgroup[1:]) in self._snippet_rules:
+            return self._rules[int(whole.lastgroup[1:])][1]
+        pieces, end = [], 0
+        for hit in self._matcher.finditer(text):
+            gap = punctuation(text[end:hit.start()])
+            if end == 0 and self.spoken_punct:
+                gap = gap.lstrip()
+            pieces.append(gap)
+            pieces.append(self._rules[int(hit.lastgroup[1:])][1])
+            end = hit.end()
+        tail = punctuation(text[end:])
+        if self.spoken_punct:
+            tail = tail.rstrip()
+        pieces.append(tail)
+        return "".join(pieces)
 
 
 class PersonalizerStage(BaseStage):

@@ -39,10 +39,29 @@ def fake_urlopen(routes):
 
 
 class TestBackendDetection(unittest.TestCase):
+    def test_empty_ollama_server_is_not_a_ready_model(self):
+        llm = LlmCleanup(dict(CFG, api="ollama"))
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
+                "11434/api/tags": {"models": []}})):
+            self.assertFalse(llm.reachable())
+
+    def test_auto_falls_back_when_ollama_has_the_wrong_model(self):
+        llm = LlmCleanup(dict(CFG))
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
+                "11434/api/tags": {"models": [{"name": "different:latest"}]},
+                "1234/v1/models": {"data": [{"id": "loaded"}]}})):
+            self.assertEqual(llm.backend(), "openai")
+
+    def test_missing_pinned_model_is_not_ready(self):
+        llm = LlmCleanup(dict(CFG, api="openai", openai_model="missing"))
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
+                "1234/v1/models": {"data": [{"id": "other"}]}})):
+            self.assertFalse(llm.reachable())
+
     def test_auto_prefers_ollama(self):
         llm = LlmCleanup(dict(CFG))
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
-                "11434/api/tags": {"models": []},
+                "11434/api/tags": {"models": [{"name": CFG["model"]}]},
                 "1234/v1/models": {"data": [{"id": "qwen"}]}})):
             self.assertEqual(llm.backend(), "ollama")
 
@@ -77,7 +96,7 @@ class TestBackendDetection(unittest.TestCase):
     def test_pinned_openai_model_wins(self):
         llm = LlmCleanup(dict(CFG, api="openai", openai_model="pinned"))
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
-                "1234/v1/models": {"data": [{"id": "other"}]}})):
+                "1234/v1/models": {"data": [{"id": "other"}, {"id": "pinned"}]}})):
             self.assertTrue(llm.reachable())
             self.assertEqual(llm._openai_model, "pinned")
 
@@ -95,7 +114,7 @@ class TestRunPrompt(unittest.TestCase):
     def test_ollama_chat_roundtrip(self):
         llm = LlmCleanup(dict(CFG, api="ollama"))
         with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen({
-                "11434/api/tags": {"models": []},
+                "11434/api/tags": {"models": [{"name": CFG["model"]}]},
                 "11434/api/chat": {"message": {"content": "Via Ollama."}}})):
             self.assertEqual(llm.run_prompt("sys", "raw dictated text"),
                              "Via Ollama.")
@@ -114,6 +133,36 @@ class TestRunPrompt(unittest.TestCase):
                 "1234/v1/chat/completions": OSError("server died")})):
             self.assertIsNone(llm.run_prompt("sys", "raw dictated text"))
         self.assertIsNone(llm._backend, "dead server must not stay cached as up")
+
+
+class TestContentGuard(unittest.TestCase):
+    def test_a_polish_that_drops_a_sentence_is_refused(self):
+        from mywhisper.pipeline.llm import drops_content
+        src = "The quick brown fox jumps over the lazy dog. Please push the code today."
+        self.assertTrue(drops_content(src, "Please push the code today."), "leading sentence gone")
+        self.assertTrue(drops_content(src, "The quick brown fox jumps over the lazy dog."), "trailing sentence gone")
+        self.assertFalse(drops_content("um so meet at 5 no no at 4 okay", "Meet at 4, okay."))
+        self.assertFalse(drops_content(
+            "um so like go ahead and do two plus two no no I meant three plus three and um send it to Alice before lunch",
+            "Go ahead and do 3+3 and send it to Alice before lunch."), "a real correction must pass")
+        llm = LlmCleanup(dict(CFG))
+        with mock.patch.object(llm, "run_prompt", return_value="Please push the code today."):
+            self.assertEqual(llm.run(src), src)
+
+
+class TestWarm(unittest.TestCase):
+    def test_warm_is_a_noop_below_high_without_force(self):
+        llm = LlmCleanup(dict(CFG))
+        with mock.patch("urllib.request.urlopen", side_effect=AssertionError("no call")):
+            llm.warm("medium")
+
+    def test_warm_loads_the_model_at_high_when_a_server_answers(self):
+        llm = LlmCleanup(dict(CFG))
+        routes = {"/api/tags": {"models": [{"name": "qwen2.5:3b-instruct"}]},
+                  "/api/chat": {"message": {"content": "ready"}}}
+        with mock.patch("urllib.request.urlopen", side_effect=fake_urlopen(routes)):
+            llm.warm("high")
+        self.assertEqual(llm._backend, "ollama")
 
 
 if __name__ == "__main__":
